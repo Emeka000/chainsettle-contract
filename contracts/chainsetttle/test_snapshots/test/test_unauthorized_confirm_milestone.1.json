@@ -131,14 +131,6 @@
                         },
                         {
                           "key": {
-                            "symbol": "release_after_ledger"
-                          },
-                          "val": {
-                            "u32": 0
-                          }
-                        },
-                        {
-                          "key": {
                             "symbol": "status"
                           },
                           "val": {
@@ -175,14 +167,6 @@
                           },
                           "val": {
                             "string": ""
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "release_after_ledger"
-                          },
-                          "val": {
-                            "u32": 0
                           }
                         },
                         {
@@ -227,14 +211,6 @@
                         },
                         {
                           "key": {
-                            "symbol": "release_after_ledger"
-                          },
-                          "val": {
-                            "u32": 0
-                          }
-                        },
-                        {
-                          "key": {
                             "symbol": "status"
                           },
                           "val": {
@@ -250,7 +226,7 @@
                   ]
                 },
                 {
-                  "bool": false
+                  "u32": 0
                 },
                 {
                   "u32": 0
@@ -394,6 +370,119 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "CancelPolicy"
+                },
+                {
+                  "string": "SHIP-AUTH"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "CancelPolicy"
+                    },
+                    {
+                      "string": "SHIP-AUTH"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "penalty_bps"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "response_deadline"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "ProofSubmittedAt"
+                },
+                {
+                  "string": "SHIP-AUTH"
+                },
+                {
+                  "u32": 0
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ProofSubmittedAt"
+                    },
+                    {
+                      "string": "SHIP-AUTH"
+                    },
+                    {
+                      "u32": 0
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "Shipment"
                 },
                 {
@@ -450,14 +539,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "holdback_ledgers"
-                      },
-                      "val": {
-                        "u32": 0
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "id"
                       },
                       "val": {
@@ -506,14 +587,6 @@
                               },
                               {
                                 "key": {
-                                  "symbol": "release_after_ledger"
-                                },
-                                "val": {
-                                  "u32": 0
-                                }
-                              },
-                              {
-                                "key": {
                                   "symbol": "status"
                                 },
                                 "val": {
@@ -550,14 +623,6 @@
                                 },
                                 "val": {
                                   "string": ""
-                                }
-                              },
-                              {
-                                "key": {
-                                  "symbol": "release_after_ledger"
-                                },
-                                "val": {
-                                  "u32": 0
                                 }
                               },
                               {
@@ -602,14 +667,6 @@
                               },
                               {
                                 "key": {
-                                  "symbol": "release_after_ledger"
-                                },
-                                "val": {
-                                  "u32": 0
-                                }
-                              },
-                              {
-                                "key": {
                                   "symbol": "status"
                                 },
                                 "val": {
@@ -634,14 +691,6 @@
                           "hi": 0,
                           "lo": 0
                         }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "sequential"
-                      },
-                      "val": {
-                        "bool": false
                       }
                     },
                     {

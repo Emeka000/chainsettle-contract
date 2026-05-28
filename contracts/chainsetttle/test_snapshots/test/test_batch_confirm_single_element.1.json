@@ -78,7 +78,7 @@
               "function_name": "create_shipment",
               "args": [
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH-1"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -275,13 +275,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH-1"
                 },
                 {
                   "u32": 0
                 },
                 {
-                  "string": "ipfs://proof"
+                  "string": "ipfs://d"
                 }
               ]
             }
@@ -297,16 +297,20 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "raise_dispute",
+              "function_name": "batch_confirm_milestones",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH-1"
                 },
                 {
-                  "u32": 0
+                  "vec": [
+                    {
+                      "u32": 0
+                    }
+                  ]
                 }
               ]
             }
@@ -316,34 +320,6 @@
       ]
     ],
     [],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "resolve_dispute",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
-                },
-                {
-                  "string": "SHIP-DISPUTE"
-                },
-                {
-                  "u32": 0
-                },
-                {
-                  "bool": true
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
     []
   ],
   "ledger": {
@@ -427,7 +403,7 @@
                   "symbol": "CancelPolicy"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH-1"
                 }
               ]
             },
@@ -447,7 +423,7 @@
                       "symbol": "CancelPolicy"
                     },
                     {
-                      "string": "SHIP-DISPUTE"
+                      "string": "SHIP-BATCH-1"
                     }
                   ]
                 },
@@ -489,7 +465,7 @@
                   "symbol": "ProofSubmittedAt"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH-1"
                 },
                 {
                   "u32": 0
@@ -512,7 +488,7 @@
                       "symbol": "ProofSubmittedAt"
                     },
                     {
-                      "string": "SHIP-DISPUTE"
+                      "string": "SHIP-BATCH-1"
                     },
                     {
                       "u32": 0
@@ -540,7 +516,7 @@
                   "symbol": "Shipment"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH-1"
                 }
               ]
             },
@@ -560,7 +536,7 @@
                       "symbol": "Shipment"
                     },
                     {
-                      "string": "SHIP-DISPUTE"
+                      "string": "SHIP-BATCH-1"
                     }
                   ]
                 },
@@ -596,7 +572,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "SHIP-DISPUTE"
+                        "string": "SHIP-BATCH-1"
                       }
                     },
                     {
@@ -636,7 +612,7 @@
                                   "symbol": "proof_hash"
                                 },
                                 "val": {
-                                  "string": "ipfs://proof"
+                                  "string": "ipfs://d"
                                 }
                               },
                               {
@@ -646,7 +622,7 @@
                                 "val": {
                                   "vec": [
                                     {
-                                      "symbol": "Resolved"
+                                      "symbol": "Confirmed"
                                     }
                                   ]
                                 }
@@ -994,39 +970,6 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 2032731177588607455
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 8370022561469687789
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 8370022561469687789
                   }
                 },
                 "durability": "temporary",

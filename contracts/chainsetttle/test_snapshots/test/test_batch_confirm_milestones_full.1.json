@@ -78,7 +78,7 @@
               "function_name": "create_shipment",
               "args": [
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -275,13 +275,69 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH"
                 },
                 {
                   "u32": 0
                 },
                 {
-                  "string": "ipfs://proof"
+                  "string": "ipfs://d"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "submit_proof",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                },
+                {
+                  "string": "SHIP-BATCH"
+                },
+                {
+                  "u32": 1
+                },
+                {
+                  "string": "ipfs://t"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "submit_proof",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "string": "SHIP-BATCH"
+                },
+                {
+                  "u32": 2
+                },
+                {
+                  "string": "ipfs://v"
                 }
               ]
             }
@@ -297,16 +353,26 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "raise_dispute",
+              "function_name": "batch_confirm_milestones",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH"
                 },
                 {
-                  "u32": 0
+                  "vec": [
+                    {
+                      "u32": 0
+                    },
+                    {
+                      "u32": 1
+                    },
+                    {
+                      "u32": 2
+                    }
+                  ]
                 }
               ]
             }
@@ -316,34 +382,6 @@
       ]
     ],
     [],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "resolve_dispute",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
-                },
-                {
-                  "string": "SHIP-DISPUTE"
-                },
-                {
-                  "u32": 0
-                },
-                {
-                  "bool": true
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
     []
   ],
   "ledger": {
@@ -427,7 +465,7 @@
                   "symbol": "CancelPolicy"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH"
                 }
               ]
             },
@@ -447,7 +485,7 @@
                       "symbol": "CancelPolicy"
                     },
                     {
-                      "string": "SHIP-DISPUTE"
+                      "string": "SHIP-BATCH"
                     }
                   ]
                 },
@@ -489,7 +527,7 @@
                   "symbol": "ProofSubmittedAt"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH"
                 },
                 {
                   "u32": 0
@@ -512,7 +550,7 @@
                       "symbol": "ProofSubmittedAt"
                     },
                     {
-                      "string": "SHIP-DISPUTE"
+                      "string": "SHIP-BATCH"
                     },
                     {
                       "u32": 0
@@ -537,10 +575,112 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "ProofSubmittedAt"
+                },
+                {
+                  "string": "SHIP-BATCH"
+                },
+                {
+                  "u32": 1
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ProofSubmittedAt"
+                    },
+                    {
+                      "string": "SHIP-BATCH"
+                    },
+                    {
+                      "u32": 1
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "ProofSubmittedAt"
+                },
+                {
+                  "string": "SHIP-BATCH"
+                },
+                {
+                  "u32": 2
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ProofSubmittedAt"
+                    },
+                    {
+                      "string": "SHIP-BATCH"
+                    },
+                    {
+                      "u32": 2
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "Shipment"
                 },
                 {
-                  "string": "SHIP-DISPUTE"
+                  "string": "SHIP-BATCH"
                 }
               ]
             },
@@ -560,7 +700,7 @@
                       "symbol": "Shipment"
                     },
                     {
-                      "string": "SHIP-DISPUTE"
+                      "string": "SHIP-BATCH"
                     }
                   ]
                 },
@@ -596,7 +736,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "SHIP-DISPUTE"
+                        "string": "SHIP-BATCH"
                       }
                     },
                     {
@@ -636,7 +776,7 @@
                                   "symbol": "proof_hash"
                                 },
                                 "val": {
-                                  "string": "ipfs://proof"
+                                  "string": "ipfs://d"
                                 }
                               },
                               {
@@ -646,7 +786,7 @@
                                 "val": {
                                   "vec": [
                                     {
-                                      "symbol": "Resolved"
+                                      "symbol": "Confirmed"
                                     }
                                   ]
                                 }
@@ -676,7 +816,7 @@
                                   "symbol": "proof_hash"
                                 },
                                 "val": {
-                                  "string": ""
+                                  "string": "ipfs://t"
                                 }
                               },
                               {
@@ -686,7 +826,7 @@
                                 "val": {
                                   "vec": [
                                     {
-                                      "symbol": "Pending"
+                                      "symbol": "Confirmed"
                                     }
                                   ]
                                 }
@@ -716,7 +856,7 @@
                                   "symbol": "proof_hash"
                                 },
                                 "val": {
-                                  "string": ""
+                                  "string": "ipfs://v"
                                 }
                               },
                               {
@@ -726,7 +866,7 @@
                                 "val": {
                                   "vec": [
                                     {
-                                      "symbol": "Pending"
+                                      "symbol": "Confirmed"
                                     }
                                   ]
                                 }
@@ -743,7 +883,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 250000000
+                          "lo": 1000000000
                         }
                       }
                     },
@@ -754,7 +894,7 @@
                       "val": {
                         "vec": [
                           {
-                            "symbol": "Active"
+                            "symbol": "Completed"
                           }
                         ]
                       }
@@ -912,7 +1052,7 @@
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
             "key": {
               "ledger_key_nonce": {
-                "nonce": 4270020994084947596
+                "nonce": 4837995959683129791
               }
             },
             "durability": "temporary"
@@ -927,7 +1067,7 @@
                 "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
                 "key": {
                   "ledger_key_nonce": {
-                    "nonce": 4270020994084947596
+                    "nonce": 4837995959683129791
                   }
                 },
                 "durability": "temporary",
@@ -945,7 +1085,7 @@
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
             "key": {
               "ledger_key_nonce": {
-                "nonce": 4837995959683129791
+                "nonce": 6277191135259896685
               }
             },
             "durability": "temporary"
@@ -960,7 +1100,7 @@
                 "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
                 "key": {
                   "ledger_key_nonce": {
-                    "nonce": 4837995959683129791
+                    "nonce": 6277191135259896685
                   }
                 },
                 "durability": "temporary",
@@ -1008,7 +1148,7 @@
       [
         {
           "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
             "key": {
               "ledger_key_nonce": {
                 "nonce": 8370022561469687789
@@ -1023,10 +1163,43 @@
             "data": {
               "contract_data": {
                 "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 8370022561469687789
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 4270020994084947596
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 4270020994084947596
                   }
                 },
                 "durability": "temporary",
@@ -1082,7 +1255,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 750000000
+                          "lo": 0
                         }
                       }
                     },
@@ -1228,7 +1401,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 250000000
+                          "lo": 1000000000
                         }
                       }
                     },

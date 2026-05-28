@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, Env, String, Vec, Symbol,
+    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Vec, Symbol,
 };
 
 // ============================================================
@@ -74,14 +74,24 @@ pub struct Shipment {
     pub holdback_ledgers: u32,
 }
 
-/// Protocol fee configuration set by admin.
+/// Cancellation policy stored separately (keeps Shipment within the 12-field contracttype limit).
 #[contracttype]
 #[derive(Clone)]
-pub struct FeeConfig {
-    /// Fee in basis points (e.g. 30 = 0.30%). Max 1000 (10%).
-    pub fee_bps: u32,
-    /// Address that receives collected fees.
-    pub treasury: Address,
+pub struct CancelPolicy {
+    /// 0 = supplier cancellation disabled; >0 = ledgers after proof submission
+    pub response_deadline: u32,
+    /// basis points deducted from buyer refund on supplier cancellation (e.g. 500 = 5%)
+    pub penalty_bps: u32,
+}
+
+/// Pending amendment proposal for a single milestone.
+#[contracttype]
+#[derive(Clone)]
+pub struct AmendmentProposal {
+    pub new_percent: u32,
+    pub new_name: String,
+    pub buyer_agreed: bool,
+    pub supplier_agreed: bool,
 }
 
 // ============================================================
@@ -91,10 +101,13 @@ pub struct FeeConfig {
 #[contracttype]
 pub enum DataKey {
     Shipment(String),
+    CancelPolicy(String),
     AllShipments,
     Admin,
-    // Issue #2: allowed token whitelist
-    AllowedTokens,
+    /// Ledger sequence when a milestone entered ProofSubmitted state.
+    ProofSubmittedAt(String, u32),
+    /// Pending amendment proposal.
+    Amendment(String, u32),
 }
 
 // ============================================================
@@ -139,66 +152,37 @@ impl ChainSettleContract {
     }
 
     // ----------------------------------------------------------
-    // ISSUE #2: TOKEN WHITELIST MANAGEMENT
+    // UPGRADE  (#4)
     // ----------------------------------------------------------
 
-    /// Admin adds a token to the allowed list.
-    /// When the list is non-empty, only listed tokens are accepted.
-    pub fn add_allowed_token(env: Env, token: Address) {
-        let admin: Address = env
+    /// Replace the contract WASM in-place. Only callable by admin.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let stored_admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic!("not initialised"));
-        admin.require_auth();
-
-        let mut list: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::AllowedTokens)
-            .unwrap_or_else(|| Vec::new(&env));
-
-        for i in 0..list.len() {
-            if list.get(i).unwrap() == token {
-                return; // already present
-            }
+            .unwrap_or_else(|| panic!("unauthorized"));
+        if admin != stored_admin {
+            panic!("unauthorized");
         }
-        list.push_back(token);
-        env.storage().instance().set(&DataKey::AllowedTokens, &list);
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.events().publish(
+            (Symbol::new(&env, "contract_upgraded"),),
+            (new_wasm_hash, env.ledger().sequence()),
+        );
     }
 
-    /// Admin removes a token from the allowed list.
-    pub fn remove_allowed_token(env: Env, token: Address) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic!("not initialised"));
-        admin.require_auth();
-
-        let list: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::AllowedTokens)
-            .unwrap_or_else(|| Vec::new(&env));
-
-        let mut new_list: Vec<Address> = Vec::new(&env);
-        for i in 0..list.len() {
-            let t = list.get(i).unwrap();
-            if t != token {
-                new_list.push_back(t);
-            }
-        }
-        env.storage().instance().set(&DataKey::AllowedTokens, &new_list);
+    /// Migration stub — call once after upgrade to perform any data-model changes.
+    pub fn migrate(_env: Env) {
+        // No-op for current version; implement data migrations here post-upgrade.
     }
 
     // ----------------------------------------------------------
     // CREATE SHIPMENT
     // ----------------------------------------------------------
 
-    /// Create a new shipment and lock funds in escrow.
-    /// sequential=true enforces in-order milestone proof submission.
-    /// holdback_ledgers>0 delays payment transfer after confirmation.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_shipment(
         env: Env,
         shipment_id: String,
@@ -209,8 +193,8 @@ impl ChainSettleContract {
         token: Address,
         total_amount: i128,
         milestones: Vec<Milestone>,
-        sequential: bool,
-        holdback_ledgers: u32,
+        response_deadline: u32,
+        penalty_bps: u32,
     ) -> String {
         if buyers.is_empty() {
             panic!("at least one buyer is required");
@@ -246,8 +230,7 @@ impl ChainSettleContract {
 
         let mut total_percent: u32 = 0;
         for i in 0..milestones.len() {
-            let m = milestones.get(i).unwrap();
-            total_percent += m.payment_percent;
+            total_percent += milestones.get(i).unwrap().payment_percent;
         }
         if total_percent != 100 {
             panic!("milestone percentages must sum to 100");
@@ -298,7 +281,12 @@ impl ChainSettleContract {
         env.storage()
             .persistent()
             .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
-
+        env.storage()
+            .persistent()
+            .set(
+                &DataKey::CancelPolicy(shipment_id.clone()),
+                &CancelPolicy { response_deadline, penalty_bps },
+            );
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Shipment(shipment_id.clone()), 100_000, 6_300_000);
@@ -315,8 +303,6 @@ impl ChainSettleContract {
     // SUBMIT PROOF
     // ----------------------------------------------------------
 
-    /// Supplier or logistics party submits proof for a milestone.
-    /// Issue #1: when sequential=true, all prior milestones must be Confirmed or Resolved.
     pub fn submit_proof(
         env: Env,
         caller: Address,
@@ -331,9 +317,7 @@ impl ChainSettleContract {
         if shipment.status != ShipmentStatus::Active {
             panic!("shipment is not active");
         }
-
-        let idx = milestone_index as usize;
-        if idx >= shipment.milestones.len() as usize {
+        if milestone_index as usize >= shipment.milestones.len() as usize {
             panic!("invalid milestone index");
         }
 
@@ -354,7 +338,6 @@ impl ChainSettleContract {
         if milestone.status != MilestoneStatus::Pending {
             panic!("milestone is not in pending status");
         }
-
         if caller != shipment.supplier && caller != shipment.logistics {
             panic!("unauthorized");
         }
@@ -382,6 +365,12 @@ impl ChainSettleContract {
             .persistent()
             .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
 
+        // Record the ledger at which proof was submitted (used by supplier_cancel).
+        env.storage().persistent().set(
+            &DataKey::ProofSubmittedAt(shipment_id.clone(), milestone_index),
+            &env.ledger().sequence(),
+        );
+
         env.events().publish(
             (Symbol::new(&env, "proof_submitted"), shipment_id.clone()),
             milestone_index,
@@ -392,9 +381,6 @@ impl ChainSettleContract {
     // CONFIRM MILESTONE (multi-sig)
     // ----------------------------------------------------------
 
-    /// Buyer confirms a milestone.
-    /// Issue #4: when holdback_ledgers > 0, records release_after_ledger instead of
-    /// transferring immediately; status becomes ConfirmedHeld.
     pub fn confirm_milestone(
         env: Env,
         buyer: Address,
@@ -402,25 +388,19 @@ impl ChainSettleContract {
         milestone_index: u32,
     ) {
         buyer.require_auth();
-
         let mut shipment = Self::get_shipment_internal(&env, &shipment_id);
 
         if shipment.status != ShipmentStatus::Active {
             panic!("shipment is not active");
         }
-
-        // Verify caller is one of the co-buyers
-        if !Self::is_buyer(&shipment, &buyer) {
+        if buyer != shipment.buyer {
             panic!("unauthorized");
         }
-
-        let idx = milestone_index as usize;
-        if idx >= shipment.milestones.len() as usize {
+        if milestone_index as usize >= shipment.milestones.len() as usize {
             panic!("invalid milestone index");
         }
 
         let mut milestone = shipment.milestones.get(milestone_index).unwrap();
-
         if milestone.status != MilestoneStatus::ProofSubmitted {
             panic!("milestone proof not yet submitted");
         }
@@ -503,8 +483,10 @@ impl ChainSettleContract {
             let payment = (shipment.total_amount * milestone.payment_percent as i128) / 100;
             let net_payment = Self::deduct_fee(&env, payment, &shipment.token, &mut fee_amount);
 
-        let all_done = Self::all_milestones_done(&shipment);
-        if all_done {
+        let all_confirmed = (0..shipment.milestones.len()).all(|i| {
+            shipment.milestones.get(i).unwrap().status == MilestoneStatus::Confirmed
+        });
+        if all_confirmed {
             shipment.status = ShipmentStatus::Completed;
         }
 
@@ -519,11 +501,78 @@ impl ChainSettleContract {
     }
 
     // ----------------------------------------------------------
+    // BATCH CONFIRM MILESTONES  (#8)
+    // ----------------------------------------------------------
+
+    /// Confirm multiple milestones in one invocation. Atomic — any failure reverts all.
+    pub fn batch_confirm_milestones(
+        env: Env,
+        buyer: Address,
+        shipment_id: String,
+        milestone_indices: Vec<u32>,
+    ) {
+        buyer.require_auth();
+
+        if milestone_indices.is_empty() {
+            return;
+        }
+
+        let mut shipment = Self::get_shipment_internal(&env, &shipment_id);
+
+        if shipment.status != ShipmentStatus::Active {
+            panic!("shipment is not active");
+        }
+        if buyer != shipment.buyer {
+            panic!("unauthorized");
+        }
+
+        // Validate all indices and statuses before mutating anything.
+        for i in 0..milestone_indices.len() {
+            let idx = milestone_indices.get(i).unwrap();
+            if idx as usize >= shipment.milestones.len() as usize {
+                panic!("invalid milestone index");
+            }
+            let m = shipment.milestones.get(idx).unwrap();
+            if m.status != MilestoneStatus::ProofSubmitted {
+                panic!("milestone proof not yet submitted");
+            }
+        }
+
+        // Apply confirmations and emit events.
+        for i in 0..milestone_indices.len() {
+            let idx = milestone_indices.get(i).unwrap();
+            let mut milestone = shipment.milestones.get(idx).unwrap();
+            milestone.status = MilestoneStatus::Confirmed;
+            shipment.milestones.set(idx, milestone.clone());
+
+            let payment = (shipment.total_amount * milestone.payment_percent as i128) / 100;
+            shipment.released_amount += payment;
+
+            let token_client = token::Client::new(&env, &shipment.token);
+            token_client.transfer(&env.current_contract_address(), &shipment.supplier, &payment);
+
+            env.events().publish(
+                (Symbol::new(&env, "milestone_confirmed"), shipment_id.clone()),
+                (idx, payment),
+            );
+        }
+
+        let all_confirmed = (0..shipment.milestones.len()).all(|i| {
+            shipment.milestones.get(i).unwrap().status == MilestoneStatus::Confirmed
+        });
+        if all_confirmed {
+            shipment.status = ShipmentStatus::Completed;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
+    }
+
+    // ----------------------------------------------------------
     // RAISE DISPUTE
     // ----------------------------------------------------------
 
-    /// Buyer raises a dispute on a ProofSubmitted or ConfirmedHeld milestone.
-    /// Issue #4: disputing a ConfirmedHeld milestone cancels the holdback.
     pub fn raise_dispute(
         env: Env,
         buyer: Address,
@@ -537,16 +586,12 @@ impl ChainSettleContract {
         if shipment.status != ShipmentStatus::Active {
             panic!("shipment is not active");
         }
-
-        if !Self::is_buyer(&shipment, &buyer) {
+        if buyer != shipment.buyer {
             panic!("unauthorized");
         }
 
         let mut milestone = shipment.milestones.get(milestone_index).unwrap();
-
-        if milestone.status != MilestoneStatus::ProofSubmitted
-            && milestone.status != MilestoneStatus::ConfirmedHeld
-        {
+        if milestone.status != MilestoneStatus::ProofSubmitted {
             panic!("can only dispute a submitted proof");
         }
 
@@ -585,13 +630,11 @@ impl ChainSettleContract {
         if shipment.status != ShipmentStatus::Active {
             panic!("shipment is not active");
         }
-
         if arbiter != shipment.arbiter {
             panic!("unauthorized");
         }
 
         let mut milestone = shipment.milestones.get(milestone_index).unwrap();
-
         if milestone.status != MilestoneStatus::Disputed {
             panic!("milestone is not in disputed status");
         }
@@ -602,14 +645,8 @@ impl ChainSettleContract {
             let net_payment = Self::deduct_fee(&env, payment, &shipment.token, &mut fee_amount);
 
             shipment.released_amount += payment;
-
             let token_client = token::Client::new(&env, &shipment.token);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &shipment.supplier,
-                &net_payment,
-            );
-
+            token_client.transfer(&env.current_contract_address(), &shipment.supplier, &payment);
             milestone.status = MilestoneStatus::Resolved;
         } else {
             milestone.status = MilestoneStatus::Pending;
@@ -619,7 +656,10 @@ impl ChainSettleContract {
 
         shipment.milestones.set(milestone_index, milestone);
 
-        let all_done = Self::all_milestones_done(&shipment);
+        let all_done = (0..shipment.milestones.len()).all(|i| {
+            let s = shipment.milestones.get(i).unwrap().status;
+            s == MilestoneStatus::Confirmed || s == MilestoneStatus::Resolved
+        });
         if all_done {
             shipment.status = ShipmentStatus::Completed;
         }
@@ -635,12 +675,9 @@ impl ChainSettleContract {
     }
 
     // ----------------------------------------------------------
-    // CANCEL SHIPMENT
+    // CANCEL SHIPMENT (buyer)
     // ----------------------------------------------------------
 
-    /// Cancel the shipment and refund unreleased escrow to the buyer.
-    /// Issue #3: allowed even after some milestones are Confirmed; already-released
-    /// funds stay with the supplier. Blocked if any milestone is Disputed.
     pub fn cancel_shipment(env: Env, buyer: Address, shipment_id: String) {
         buyer.require_auth();
 
@@ -649,8 +686,7 @@ impl ChainSettleContract {
         if shipment.status != ShipmentStatus::Active {
             panic!("shipment is not active");
         }
-
-        if !Self::is_buyer(&shipment, &buyer) {
+        if buyer != shipment.buyer {
             panic!("unauthorized");
         }
 
@@ -682,51 +718,66 @@ impl ChainSettleContract {
     }
 
     // ----------------------------------------------------------
-    // TRIGGER DEADLINE CANCELLATION
+    // SUPPLIER CANCEL  (#10)
     // ----------------------------------------------------------
 
-    /// Anyone can call this to cancel a shipment when a milestone's deadline has passed
-    /// and proof has not yet been submitted. Remaining funds are returned to the primary buyer.
-    ///
-    /// Conditions:
-    ///   - Shipment must be Active.
-    ///   - The milestone must be Pending (proof not submitted).
-    ///   - env.ledger().sequence() > deadline_ledger.
-    pub fn trigger_deadline_cancellation(
-        env: Env,
-        shipment_id: String,
-        milestone_index: u32,
-    ) {
+    /// Supplier cancels after buyer_response_deadline_ledgers have passed
+    /// with at least one milestone stuck in ProofSubmitted.
+    /// Buyer receives refund minus supplier_penalty_bps of the remaining escrow.
+    pub fn supplier_cancel(env: Env, supplier: Address, shipment_id: String) {
+        supplier.require_auth();
+
         let mut shipment = Self::get_shipment_internal(&env, &shipment_id);
 
         if shipment.status != ShipmentStatus::Active {
             panic!("shipment is not active");
         }
+        if supplier != shipment.supplier {
+            panic!("unauthorized");
+        }
+        let policy: CancelPolicy = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CancelPolicy(shipment_id.clone()))
+            .unwrap_or(CancelPolicy { response_deadline: 0, penalty_bps: 0 });
 
-        let idx = milestone_index as usize;
-        if idx >= shipment.milestones.len() as usize {
-            panic!("invalid milestone index");
+        if policy.response_deadline == 0 {
+            panic!("supplier cancellation not enabled for this shipment");
         }
 
-        let milestone = shipment.milestones.get(milestone_index).unwrap();
-
-        if milestone.status != MilestoneStatus::Pending {
-            panic!("milestone is not pending");
+        // Find the earliest ProofSubmitted milestone and check deadline.
+        let current_ledger = env.ledger().sequence();
+        let mut deadline_passed = false;
+        for i in 0..shipment.milestones.len() {
+            let m = shipment.milestones.get(i).unwrap();
+            if m.status == MilestoneStatus::ProofSubmitted {
+                let submitted_at: u32 = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::ProofSubmittedAt(shipment_id.clone(), i))
+                    .unwrap_or(0);
+                if current_ledger >= submitted_at + policy.response_deadline {
+                    deadline_passed = true;
+                    break;
+                }
+            }
         }
 
-        let deadline = milestone
-            .deadline_ledger
-            .unwrap_or_else(|| panic!("milestone has no deadline"));
-
-        if env.ledger().sequence() <= deadline {
-            panic!("deadline has not been breached");
+        if !deadline_passed {
+            panic!("buyer response deadline has not passed");
         }
 
-        // Refund remaining escrow to primary buyer
-        let refund = shipment.total_amount - shipment.released_amount;
-        let primary_buyer = shipment.buyers.get(0).unwrap();
+        let remaining = shipment.total_amount - shipment.released_amount;
+        let penalty = (remaining * policy.penalty_bps as i128) / 10_000;
+        let refund = remaining - penalty;
+
         let token_client = token::Client::new(&env, &shipment.token);
-        token_client.transfer(&env.current_contract_address(), &primary_buyer, &refund);
+        if penalty > 0 {
+            token_client.transfer(&env.current_contract_address(), &shipment.supplier, &penalty);
+        }
+        if refund > 0 {
+            token_client.transfer(&env.current_contract_address(), &shipment.buyer, &refund);
+        }
 
         shipment.status = ShipmentStatus::Cancelled;
 
@@ -735,9 +786,110 @@ impl ChainSettleContract {
             .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
 
         env.events().publish(
-            (Symbol::new(&env, "deadline_breached"), shipment_id.clone()),
-            (milestone_index, deadline),
+            (Symbol::new(&env, "supplier_cancellation"), shipment_id.clone()),
+            (penalty, refund),
         );
+    }
+
+    // ----------------------------------------------------------
+    // PROPOSE AMENDMENT  (#9)
+    // ----------------------------------------------------------
+
+    /// Buyer or supplier proposes an amendment to a Pending milestone.
+    /// When both parties have proposed identical (new_percent, new_name), the amendment is applied.
+    pub fn propose_amendment(
+        env: Env,
+        caller: Address,
+        shipment_id: String,
+        milestone_index: u32,
+        new_percent: u32,
+        new_name: String,
+    ) {
+        caller.require_auth();
+
+        let mut shipment = Self::get_shipment_internal(&env, &shipment_id);
+
+        if shipment.status != ShipmentStatus::Active {
+            panic!("shipment is not active");
+        }
+        if caller != shipment.buyer && caller != shipment.supplier {
+            panic!("unauthorized");
+        }
+        if milestone_index as usize >= shipment.milestones.len() as usize {
+            panic!("invalid milestone index");
+        }
+
+        let milestone = shipment.milestones.get(milestone_index).unwrap();
+        if milestone.status != MilestoneStatus::Pending {
+            panic!("can only amend a pending milestone");
+        }
+
+        let amendment_key = DataKey::Amendment(shipment_id.clone(), milestone_index);
+
+        let mut proposal: AmendmentProposal = env
+            .storage()
+            .temporary()
+            .get(&amendment_key)
+            .unwrap_or(AmendmentProposal {
+                new_percent,
+                new_name: new_name.clone(),
+                buyer_agreed: false,
+                supplier_agreed: false,
+            });
+
+        // If the stored proposal has different terms, reset it.
+        if proposal.new_percent != new_percent || proposal.new_name != new_name {
+            proposal = AmendmentProposal {
+                new_percent,
+                new_name: new_name.clone(),
+                buyer_agreed: false,
+                supplier_agreed: false,
+            };
+        }
+
+        if caller == shipment.buyer {
+            proposal.buyer_agreed = true;
+        } else {
+            proposal.supplier_agreed = true;
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "amendment_proposed"), shipment_id.clone()),
+            (milestone_index, new_percent),
+        );
+
+        if proposal.buyer_agreed && proposal.supplier_agreed {
+            // Validate new percentages sum to 100.
+            let mut total: u32 = 0;
+            for i in 0..shipment.milestones.len() {
+                if i == milestone_index {
+                    total += new_percent;
+                } else {
+                    total += shipment.milestones.get(i).unwrap().payment_percent;
+                }
+            }
+            if total != 100 {
+                panic!("milestone percentages must sum to 100");
+            }
+
+            let mut m = shipment.milestones.get(milestone_index).unwrap();
+            m.payment_percent = new_percent;
+            m.name = new_name;
+            shipment.milestones.set(milestone_index, m);
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
+
+            env.storage().temporary().remove(&amendment_key);
+
+            env.events().publish(
+                (Symbol::new(&env, "amendment_accepted"), shipment_id.clone()),
+                milestone_index,
+            );
+        } else {
+            env.storage().temporary().set(&amendment_key, &proposal);
+        }
     }
 
     // ----------------------------------------------------------
