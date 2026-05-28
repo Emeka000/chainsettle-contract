@@ -16,6 +16,8 @@ pub enum MilestoneStatus {
     Confirmed,
     Disputed,
     Resolved,
+    // Confirmed but payment held until release_after_ledger
+    ConfirmedHeld,
 }
 
 #[contracttype]
@@ -25,6 +27,8 @@ pub struct Milestone {
     pub payment_percent: u32,
     pub proof_hash: String,
     pub status: MilestoneStatus,
+    // Set when holdback_ledgers > 0 and milestone is confirmed
+    pub release_after_ledger: u32,
 }
 
 #[contracttype]
@@ -49,6 +53,10 @@ pub struct Shipment {
     pub milestones: Vec<Milestone>,
     pub status: ShipmentStatus,
     pub created_at: u32,
+    // Issue #1: enforce sequential milestone ordering
+    pub sequential: bool,
+    // Issue #4: ledgers to hold payment after confirmation (0 = immediate)
+    pub holdback_ledgers: u32,
 }
 
 /// Cancellation policy stored separately (keeps Shipment within the 12-field contracttype limit).
@@ -176,6 +184,25 @@ impl ChainSettleContract {
             panic!("amount must be greater than zero");
         }
 
+        // Issue #2: enforce token whitelist when non-empty
+        let allowed: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllowedTokens)
+            .unwrap_or_else(|| Vec::new(&env));
+        if allowed.len() > 0 {
+            let mut found = false;
+            for i in 0..allowed.len() {
+                if allowed.get(i).unwrap() == token {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                panic!("unauthorized");
+            }
+        }
+
         let mut total_percent: u32 = 0;
         for i in 0..milestones.len() {
             total_percent += milestones.get(i).unwrap().payment_percent;
@@ -207,6 +234,8 @@ impl ChainSettleContract {
             milestones,
             status: ShipmentStatus::Active,
             created_at: env.ledger().sequence(),
+            sequential,
+            holdback_ledgers,
         };
 
         env.storage()
@@ -250,6 +279,18 @@ impl ChainSettleContract {
         }
         if milestone_index as usize >= shipment.milestones.len() as usize {
             panic!("invalid milestone index");
+        }
+
+        // Issue #1: sequential enforcement
+        if shipment.sequential && milestone_index > 0 {
+            for i in 0..milestone_index {
+                let prev = shipment.milestones.get(i).unwrap();
+                if prev.status != MilestoneStatus::Confirmed
+                    && prev.status != MilestoneStatus::Resolved
+                {
+                    panic!("milestone is not in pending status");
+                }
+            }
         }
 
         let mut milestone = shipment.milestones.get(milestone_index).unwrap();
@@ -309,10 +350,78 @@ impl ChainSettleContract {
             panic!("milestone proof not yet submitted");
         }
 
-        milestone.status = MilestoneStatus::Confirmed;
-        shipment.milestones.set(milestone_index, milestone.clone());
+        let payment = (shipment.total_amount * milestone.payment_percent as i128) / 100;
+
+        if shipment.holdback_ledgers > 0 {
+            // Issue #4: hold payment
+            milestone.release_after_ledger =
+                env.ledger().sequence() + shipment.holdback_ledgers;
+            milestone.status = MilestoneStatus::ConfirmedHeld;
+            shipment.milestones.set(milestone_index, milestone.clone());
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
+
+            env.events().publish(
+                (Symbol::new(&env, "payment_held"), shipment_id.clone()),
+                (milestone_index, milestone.release_after_ledger),
+            );
+        } else {
+            milestone.status = MilestoneStatus::Confirmed;
+            shipment.milestones.set(milestone_index, milestone.clone());
+            shipment.released_amount += payment;
+
+            let token_client = token::Client::new(&env, &shipment.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &shipment.supplier,
+                &payment,
+            );
+
+            let all_done = Self::all_milestones_done(&shipment);
+            if all_done {
+                shipment.status = ShipmentStatus::Completed;
+            }
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
+
+            env.events().publish(
+                (Symbol::new(&env, "milestone_confirmed"), shipment_id.clone()),
+                (milestone_index, payment),
+            );
+        }
+    }
+
+    // ----------------------------------------------------------
+    // ISSUE #4: RELEASE HELD PAYMENT
+    // ----------------------------------------------------------
+
+    /// Anyone can call this once the holdback window has passed.
+    /// Transfers the held payment to the supplier.
+    pub fn release_held_payment(env: Env, shipment_id: String, milestone_index: u32) {
+        let mut shipment = Self::get_shipment_internal(&env, &shipment_id);
+
+        if shipment.status != ShipmentStatus::Active {
+            panic!("shipment is not active");
+        }
+
+        let mut milestone = shipment.milestones.get(milestone_index).unwrap();
+
+        if milestone.status != MilestoneStatus::ConfirmedHeld {
+            panic!("milestone is not in pending status");
+        }
+
+        if env.ledger().sequence() < milestone.release_after_ledger {
+            panic!("holdback period not yet expired");
+        }
 
         let payment = (shipment.total_amount * milestone.payment_percent as i128) / 100;
+        milestone.status = MilestoneStatus::Confirmed;
+        milestone.release_after_ledger = 0;
+        shipment.milestones.set(milestone_index, milestone);
         shipment.released_amount += payment;
 
         let token_client = token::Client::new(&env, &shipment.token);
@@ -430,6 +539,8 @@ impl ChainSettleContract {
             panic!("can only dispute a submitted proof");
         }
 
+        // Issue #4: cancel holdback if within window
+        milestone.release_after_ledger = 0;
         milestone.status = MilestoneStatus::Disputed;
         shipment.milestones.set(milestone_index, milestone);
 
@@ -517,16 +628,19 @@ impl ChainSettleContract {
             panic!("unauthorized");
         }
 
+        // Issue #3: block cancellation if any milestone is Disputed
         for i in 0..shipment.milestones.len() {
             let m = shipment.milestones.get(i).unwrap();
-            if m.status == MilestoneStatus::Confirmed || m.status == MilestoneStatus::Resolved {
-                panic!("cannot cancel: milestones already confirmed");
+            if m.status == MilestoneStatus::Disputed {
+                panic!("cannot cancel: dispute must be resolved first");
             }
         }
 
         let refund = shipment.total_amount - shipment.released_amount;
-        let token_client = token::Client::new(&env, &shipment.token);
-        token_client.transfer(&env.current_contract_address(), &shipment.buyer, &refund);
+        if refund > 0 {
+            let token_client = token::Client::new(&env, &shipment.token);
+            token_client.transfer(&env.current_contract_address(), &shipment.buyer, &refund);
+        }
 
         shipment.status = ShipmentStatus::Cancelled;
 
@@ -534,6 +648,7 @@ impl ChainSettleContract {
             .persistent()
             .set(&DataKey::Shipment(shipment_id.clone()), &shipment);
 
+        // Issue #3: event now carries refunded_amount
         env.events().publish(
             (Symbol::new(&env, "shipment_cancelled"), shipment_id.clone()),
             refund,
@@ -745,6 +860,13 @@ impl ChainSettleContract {
             .persistent()
             .get(&DataKey::Shipment(shipment_id.clone()))
             .unwrap_or_else(|| panic!("shipment not found"))
+    }
+
+    fn all_milestones_done(shipment: &Shipment) -> bool {
+        (0..shipment.milestones.len()).all(|i| {
+            let s = shipment.milestones.get(i).unwrap().status;
+            s == MilestoneStatus::Confirmed || s == MilestoneStatus::Resolved
+        })
     }
 }
 

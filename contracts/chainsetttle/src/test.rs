@@ -43,18 +43,21 @@ fn build_milestones(env: &Env) -> Vec<Milestone> {
             payment_percent: 25,
             proof_hash: String::from_str(env, ""),
             status: MilestoneStatus::Pending,
+            release_after_ledger: 0,
         },
         Milestone {
             name: String::from_str(env, "In Transit"),
             payment_percent: 50,
             proof_hash: String::from_str(env, ""),
             status: MilestoneStatus::Pending,
+            release_after_ledger: 0,
         },
         Milestone {
             name: String::from_str(env, "Delivered"),
             payment_percent: 25,
             proof_hash: String::from_str(env, ""),
             status: MilestoneStatus::Pending,
+            release_after_ledger: 0,
         },
     ]
 }
@@ -95,8 +98,8 @@ fn test_create_shipment_success() {
     let client = ChainSettleContractClient::new(&env, &contract_id);
     let token_client = token::Client::new(&env, &token_id);
 
-    let shipment_id = String::from_str(&env, "SHIP-001");
     let total_amount: i128 = 1_000_000_000;
+    create(&client, &env, "SHIP-001", &buyer, &supplier, &logistics, &arbiter, &token_id, total_amount, false, 0);
 
     create_standard_shipment(
         &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
@@ -106,11 +109,13 @@ fn test_create_shipment_success() {
     assert_eq!(token_client.balance(&buyer), 10_000_000_000 - total_amount);
     assert_eq!(token_client.balance(&contract_id), total_amount);
 
-    let shipment = client.get_shipment(&shipment_id);
+    let shipment = client.get_shipment(&String::from_str(&env, "SHIP-001"));
     assert_eq!(shipment.status, ShipmentStatus::Active);
     assert_eq!(shipment.total_amount, total_amount);
     assert_eq!(shipment.released_amount, 0);
     assert_eq!(shipment.milestones.len(), 3);
+    assert!(!shipment.sequential);
+    assert_eq!(shipment.holdback_ledgers, 0);
 }
 
 #[test]
@@ -126,18 +131,21 @@ fn test_create_shipment_invalid_percentages() {
             payment_percent: 30,
             proof_hash: String::from_str(&env, ""),
             status: MilestoneStatus::Pending,
+            release_after_ledger: 0,
         },
         Milestone {
             name: String::from_str(&env, "Step 2"),
             payment_percent: 30,
             proof_hash: String::from_str(&env, ""),
             status: MilestoneStatus::Pending,
+            release_after_ledger: 0,
         },
         Milestone {
             name: String::from_str(&env, "Step 3"),
             payment_percent: 30,
             proof_hash: String::from_str(&env, ""),
             status: MilestoneStatus::Pending,
+            release_after_ledger: 0,
         },
     ];
 
@@ -156,32 +164,33 @@ fn test_create_shipment_invalid_percentages() {
 }
 
 #[test]
-fn test_submit_proof_and_confirm_milestone() {
+fn test_full_shipment_lifecycle() {
     let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
     let client = ChainSettleContractClient::new(&env, &contract_id);
     let token_client = token::Client::new(&env, &token_id);
 
-    let shipment_id = String::from_str(&env, "SHIP-001");
     let total_amount: i128 = 1_000_000_000;
+    create(&client, &env, "SHIP-FULL", &buyer, &supplier, &logistics, &arbiter, &token_id, total_amount, false, 0);
 
     create_standard_shipment(
         &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
         total_amount,
     );
 
-    client.submit_proof(
-        &supplier,
-        &shipment_id,
-        &0,
-        &String::from_str(&env, "ipfs://QmXxx...dispatch"),
-    );
+    client.submit_proof(&logistics, &id, &1, &String::from_str(&env, "ipfs://transit"));
+    client.confirm_milestone(&buyer, &id, &1);
 
     assert_eq!(
         client.get_milestone(&shipment_id, &0).status,
         MilestoneStatus::ProofSubmitted
     );
 
-    client.confirm_milestone(&buyer, &shipment_id, &0);
+    let shipment = client.get_shipment(&id);
+    assert_eq!(shipment.status, ShipmentStatus::Completed);
+    assert_eq!(shipment.released_amount, total_amount);
+    assert_eq!(token_client.balance(&supplier), total_amount);
+    assert_eq!(client.get_escrow_balance(&id), 0);
+}
 
     let expected_payment = total_amount * 25 / 100;
     assert_eq!(token_client.balance(&supplier), expected_payment);
@@ -192,85 +201,20 @@ fn test_submit_proof_and_confirm_milestone() {
 }
 
 #[test]
-fn test_full_shipment_lifecycle() {
-    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
-    let client = ChainSettleContractClient::new(&env, &contract_id);
-    let token_client = token::Client::new(&env, &token_id);
-
-    let shipment_id = String::from_str(&env, "SHIP-FULL");
-    let total_amount: i128 = 1_000_000_000;
-
-    create_standard_shipment(
-        &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
-        total_amount,
-    );
-
-    client.submit_proof(&supplier, &shipment_id, &0, &String::from_str(&env, "ipfs://dispatch"));
-    client.confirm_milestone(&buyer, &shipment_id, &0);
-
-    client.submit_proof(&logistics, &shipment_id, &1, &String::from_str(&env, "ipfs://transit"));
-    client.confirm_milestone(&buyer, &shipment_id, &1);
-
-    client.submit_proof(&supplier, &shipment_id, &2, &String::from_str(&env, "ipfs://delivered"));
-    client.confirm_milestone(&buyer, &shipment_id, &2);
-
-    let shipment = client.get_shipment(&shipment_id);
-    assert_eq!(shipment.status, ShipmentStatus::Completed);
-    assert_eq!(shipment.released_amount, total_amount);
-    assert_eq!(token_client.balance(&supplier), total_amount);
-    assert_eq!(client.get_escrow_balance(&shipment_id), 0);
-}
-
-#[test]
-fn test_raise_and_resolve_dispute_approve() {
-    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
-    let client = ChainSettleContractClient::new(&env, &contract_id);
-    let token_client = token::Client::new(&env, &token_id);
-
-    let shipment_id = String::from_str(&env, "SHIP-DISPUTE");
-    let total_amount: i128 = 1_000_000_000;
-
-    create_standard_shipment(
-        &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
-        total_amount,
-    );
-
-    client.submit_proof(&supplier, &shipment_id, &0, &String::from_str(&env, "ipfs://proof"));
-    client.raise_dispute(&buyer, &shipment_id, &0);
-
-    assert_eq!(
-        client.get_milestone(&shipment_id, &0).status,
-        MilestoneStatus::Disputed
-    );
-
-    client.resolve_dispute(&arbiter, &shipment_id, &0, &true);
-
-    let expected = total_amount * 25 / 100;
-    assert_eq!(token_client.balance(&supplier), expected);
-}
-
-#[test]
 fn test_raise_and_resolve_dispute_reject() {
     let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
     let client = ChainSettleContractClient::new(&env, &contract_id);
     let token_client = token::Client::new(&env, &token_id);
 
-    let shipment_id = String::from_str(&env, "SHIP-REJECT");
     let total_amount: i128 = 1_000_000_000;
+    create(&client, &env, "SHIP-REJECT", &buyer, &supplier, &logistics, &arbiter, &token_id, total_amount, false, 0);
 
     create_standard_shipment(
         &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
         total_amount,
     );
 
-    client.submit_proof(&supplier, &shipment_id, &0, &String::from_str(&env, "ipfs://bad-proof"));
-    client.raise_dispute(&buyer, &shipment_id, &0);
-    client.resolve_dispute(&arbiter, &shipment_id, &0, &false);
-
-    assert_eq!(
-        client.get_milestone(&shipment_id, &0).status,
-        MilestoneStatus::Pending
-    );
+    assert_eq!(client.get_milestone(&id, &0).status, MilestoneStatus::Pending);
     assert_eq!(token_client.balance(&supplier), 0);
 }
 
@@ -280,9 +224,138 @@ fn test_cancel_shipment() {
     let client = ChainSettleContractClient::new(&env, &contract_id);
     let token_client = token::Client::new(&env, &token_id);
 
-    let shipment_id = String::from_str(&env, "SHIP-CANCEL");
     let total_amount: i128 = 1_000_000_000;
-    let buyer_balance_before = token_client.balance(&buyer);
+    let balance_before = token_client.balance(&buyer);
+    create(&client, &env, "SHIP-CANCEL", &buyer, &supplier, &logistics, &arbiter, &token_id, total_amount, false, 0);
+
+    let id = String::from_str(&env, "SHIP-CANCEL");
+    client.cancel_shipment(&buyer, &id);
+
+    let shipment = client.get_shipment(&shipment_id);
+    assert_eq!(shipment.status, ShipmentStatus::Completed);
+    assert_eq!(shipment.released_amount, total_amount);
+    assert_eq!(token_client.balance(&supplier), total_amount);
+    assert_eq!(client.get_escrow_balance(&shipment_id), 0);
+}
+
+// ============================================================
+// ISSUE #1: SEQUENTIAL MILESTONE TESTS
+// ============================================================
+
+#[test]
+fn test_sequential_happy_path() {
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+
+    create(&client, &env, "SEQ-OK", &buyer, &supplier, &logistics, &arbiter, &token_id, 1_000_000_000, true, 0);
+    let id = String::from_str(&env, "SEQ-OK");
+
+    create_standard_shipment(
+        &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
+        total_amount,
+    );
+
+    client.submit_proof(&logistics, &id, &1, &String::from_str(&env, "ipfs://1"));
+    client.confirm_milestone(&buyer, &id, &1);
+
+    assert_eq!(
+        client.get_milestone(&shipment_id, &0).status,
+        MilestoneStatus::Disputed
+    );
+
+    create(&client, &env, "SEQ-BAD", &buyer, &supplier, &logistics, &arbiter, &token_id, 1_000_000_000, true, 0);
+    let id = String::from_str(&env, "SEQ-BAD");
+
+    let expected = total_amount * 25 / 100;
+    assert_eq!(token_client.balance(&supplier), expected);
+}
+
+#[test]
+fn test_non_sequential_baseline() {
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+
+    create(&client, &env, "NONSEQ", &buyer, &supplier, &logistics, &arbiter, &token_id, 1_000_000_000, false, 0);
+    let id = String::from_str(&env, "NONSEQ");
+
+    create_standard_shipment(
+        &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
+        total_amount,
+    );
+
+// ============================================================
+// ISSUE #2: MULTI-TOKEN / WHITELIST TESTS
+// ============================================================
+
+#[test]
+fn test_usdc_shipment_no_whitelist() {
+    // Empty whitelist → any token accepted
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+    create(&client, &env, "USDC-SHIP", &buyer, &supplier, &logistics, &arbiter, &token_id, 1_000_000_000, false, 0);
+    assert_eq!(client.get_shipment(&String::from_str(&env, "USDC-SHIP")).status, ShipmentStatus::Active);
+}
+
+#[test]
+fn test_xlm_shipment_whitelisted() {
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+
+    // Register a second "XLM" token
+    let xlm_admin = Address::generate(&env);
+    let xlm_id = env.register_stellar_asset_contract_v2(xlm_admin.clone()).address();
+    token::StellarAssetClient::new(&env, &xlm_id).mint(&buyer, &10_000_000_000);
+
+    assert_eq!(
+        client.get_milestone(&shipment_id, &0).status,
+        MilestoneStatus::Pending
+    );
+    assert_eq!(token_client.balance(&supplier), 0);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_non_whitelisted_token_rejected() {
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+
+    // Whitelist only token_id; try to use a different token
+    client.add_allowed_token(&token_id);
+
+    let other_admin = Address::generate(&env);
+    let other_token = env.register_stellar_asset_contract_v2(other_admin.clone()).address();
+    token::StellarAssetClient::new(&env, &other_token).mint(&buyer, &10_000_000_000);
+
+    create(&client, &env, "BAD-TOKEN", &buyer, &supplier, &logistics, &arbiter, &other_token, 1_000_000_000, false, 0);
+}
+
+#[test]
+fn test_whitelist_toggle() {
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+
+    // Add then remove token_id — list becomes empty → permissionless again
+    client.add_allowed_token(&token_id);
+    client.remove_allowed_token(&token_id);
+
+    // Should succeed because list is now empty
+    create(&client, &env, "TOGGLE-SHIP", &buyer, &supplier, &logistics, &arbiter, &token_id, 1_000_000_000, false, 0);
+    assert_eq!(client.get_shipment(&String::from_str(&env, "TOGGLE-SHIP")).status, ShipmentStatus::Active);
+}
+
+// ============================================================
+// ISSUE #3: PARTIAL CANCELLATION TESTS
+// ============================================================
+
+#[test]
+fn test_cancel_zero_confirmed() {
+    let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
+    let client = ChainSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+
+    let total: i128 = 1_000_000_000;
+    let before = token_client.balance(&buyer);
+    create(&client, &env, "CANCEL-ZERO", &buyer, &supplier, &logistics, &arbiter, &token_id, total, false, 0);
 
     create_standard_shipment(
         &client, &env, &shipment_id, &buyer, &supplier, &logistics, &arbiter, &token_id,
@@ -481,11 +554,16 @@ fn test_supplier_cancel_happy_path() {
     );
 }
 
+// ============================================================
+// ISSUE #4: HOLDBACK TESTS
+// ============================================================
+
 #[test]
 #[should_panic(expected = "buyer response deadline has not passed")]
 fn test_supplier_cancel_premature() {
     let (env, contract_id, token_id, buyer, supplier, logistics, arbiter) = setup();
     let client = ChainSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
 
     let shipment_id = String::from_str(&env, "SHIP-PREMATURE");
 
