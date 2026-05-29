@@ -210,6 +210,8 @@ pub enum DataKey {
     ActiveDisputes,
     /// Contract-level statistics.
     ContractStats,
+    /// Per-status index: Vec<String> of shipment IDs with the given status.
+    ShipmentsByStatus(ShipmentStatus),
 }
 
 // ============================================================
@@ -560,6 +562,9 @@ impl ChainSettleContract {
             .persistent()
             .set(&DataKey::AllShipments, &all_shipments);
 
+        // Add to the Active status index.
+        Self::add_to_status_index(&env, ShipmentStatus::Active, &shipment_id);
+
         // Update total escrowed value for this token.
         let current_escrowed: i128 = env
             .storage()
@@ -812,6 +817,8 @@ impl ChainSettleContract {
                     });
                 stats.completed_shipments += 1;
                 env.storage().instance().set(&DataKey::ContractStats, &stats);
+                // Move from Active to Completed status index.
+                Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Completed, &shipment_id);
             }
 
             // Decrement total escrowed value.
@@ -891,6 +898,8 @@ impl ChainSettleContract {
                 });
             stats.completed_shipments += 1;
             env.storage().instance().set(&DataKey::ContractStats, &stats);
+            // Move from Active to Completed status index.
+            Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Completed, &shipment_id);
         }
 
         // Decrement total escrowed value.
@@ -1002,6 +1011,8 @@ impl ChainSettleContract {
                 });
             stats.completed_shipments += 1;
             env.storage().instance().set(&DataKey::ContractStats, &stats);
+            // Move from Active to Completed status index.
+            Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Completed, &shipment_id);
         }
 
         env.storage()
@@ -1166,6 +1177,8 @@ impl ChainSettleContract {
                 });
             stats.completed_shipments += 1;
             env.storage().instance().set(&DataKey::ContractStats, &stats);
+            // Move from Active to Completed status index.
+            Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Completed, &shipment_id);
         }
 
         env.storage()
@@ -1226,6 +1239,9 @@ impl ChainSettleContract {
         }
 
         shipment.status = ShipmentStatus::Cancelled;
+
+        // Move from Active to Cancelled status index.
+        Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Cancelled, &shipment_id);
 
         env.storage()
             .persistent()
@@ -1333,6 +1349,9 @@ impl ChainSettleContract {
         }
 
         shipment.status = ShipmentStatus::Cancelled;
+
+        // Move from Active to Cancelled status index.
+        Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Cancelled, &shipment_id);
 
         env.storage()
             .persistent()
@@ -1745,6 +1764,8 @@ impl ChainSettleContract {
                 });
             stats.completed_shipments += 1;
             env.storage().instance().set(&DataKey::ContractStats, &stats);
+            // Move from Active to Completed status index.
+            Self::move_shipment_status_index(&env, ShipmentStatus::Active, ShipmentStatus::Completed, &shipment_id);
         }
 
         // Decrement total escrowed value.
@@ -1826,16 +1847,28 @@ impl ChainSettleContract {
             })
     }
 
-    pub fn list_shipments(env: Env, cursor: Option<u32>, limit: u32) -> (Vec<String>, Option<u32>) {
-        let all_shipments: Vec<String> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::AllShipments)
-            .unwrap_or_else(|| Vec::new(&env));
+    pub fn list_shipments(
+        env: Env,
+        cursor: Option<u32>,
+        limit: u32,
+        status_filter: Option<ShipmentStatus>,
+    ) -> (Vec<String>, Option<u32>) {
+        let source_list: Vec<String> = match status_filter {
+            Some(status) => env
+                .storage()
+                .persistent()
+                .get(&DataKey::ShipmentsByStatus(status))
+                .unwrap_or_else(|| Vec::new(&env)),
+            None => env
+                .storage()
+                .persistent()
+                .get(&DataKey::AllShipments)
+                .unwrap_or_else(|| Vec::new(&env)),
+        };
 
         let clamped_limit = if limit > 50 { 50 } else { limit };
         let start_idx = cursor.unwrap_or(0);
-        let total_len = all_shipments.len() as u32;
+        let total_len = source_list.len() as u32;
 
         if start_idx >= total_len {
             return (Vec::new(&env), None);
@@ -1844,7 +1877,7 @@ impl ChainSettleContract {
         let mut result: Vec<String> = Vec::new(&env);
         let mut idx = start_idx;
         while idx < total_len && (result.len() as u32) < clamped_limit {
-            result.push_back(all_shipments.get(idx).unwrap());
+            result.push_back(source_list.get(idx).unwrap());
             idx += 1;
         }
 
@@ -1975,6 +2008,50 @@ impl ChainSettleContract {
             }
         }
         gross
+    }
+
+    /// Append a shipment ID to the per-status index list.
+    fn add_to_status_index(env: &Env, status: ShipmentStatus, shipment_id: &String) {
+        let key = DataKey::ShipmentsByStatus(status);
+        let mut list: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        list.push_back(shipment_id.clone());
+        env.storage().persistent().set(&key, &list);
+    }
+
+    /// Remove a shipment ID from the per-status index list.
+    fn remove_from_status_index(env: &Env, status: ShipmentStatus, shipment_id: &String) {
+        let key = DataKey::ShipmentsByStatus(status);
+        let list: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut new_list: Vec<String> = Vec::new(env);
+        let mut removed = false;
+        for i in 0..list.len() {
+            let id = list.get(i).unwrap();
+            if !removed && id == *shipment_id {
+                removed = true;
+            } else {
+                new_list.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &new_list);
+    }
+
+    /// Move a shipment ID from one status index to another (used on status transitions).
+    fn move_shipment_status_index(
+        env: &Env,
+        from: ShipmentStatus,
+        to: ShipmentStatus,
+        shipment_id: &String,
+    ) {
+        Self::remove_from_status_index(env, from, shipment_id);
+        Self::add_to_status_index(env, to, shipment_id);
     }
 }
 
