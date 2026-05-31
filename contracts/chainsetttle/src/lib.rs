@@ -98,6 +98,8 @@ pub struct Shipment {
     // ── New: auto-confirmation ────────────────────────────────
     /// Ledgers after proof submission before auto-confirmation (0 = disabled).
     pub auto_confirm_ledgers: u32,
+    /// Number of currently open disputes on this shipment.
+    pub open_dispute_count: u32,
 }
 
 /// Cancellation policy stored separately (keeps Shipment within the contracttype field limit).
@@ -217,6 +219,14 @@ pub enum DataKey {
     Amendment(String, u32),
     /// Optional fee configuration.
     FeeConfig,
+    /// Minimum allowed milestone payment percent.
+    MinMilestonePercent,
+    /// Maximum concurrently open disputes per shipment.
+    MaxConcurrentDisputes,
+    /// Blacklisted addresses banned from new shipment creation.
+    Blacklisted(Address),
+    /// Bounded admin action log for audit trail.
+    AdminActionLog,
     /// Whitelisted token addresses (Vec<Address>); empty = all tokens allowed.
     AllowedTokens,
     /// Global pause flag.
@@ -296,6 +306,10 @@ impl ChainSettleContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
         // Initialise paused to false.
         env.storage().instance().set(&DataKey::Paused, &false);
+        // Initialize default milestone and dispute limits.
+        env.storage().instance().set(&DataKey::MinMilestonePercent, &5u32);
+        env.storage().instance().set(&DataKey::MaxConcurrentDisputes, &1u32);
+        env.storage().instance().set(&DataKey::AdminActionLog, &Vec::<AuditEntry>::new(&env));
         // Initialize contract stats.
         env.storage().instance().set(
             &DataKey::ContractStats,
@@ -356,6 +370,7 @@ impl ChainSettleContract {
     pub fn pause(env: Env, admin: Address) {
         admin.require_auth();
         Self::assert_admin(&env, &admin);
+        Self::append_admin_action(&env, Symbol::new(&env, "pause"), Symbol::new(&env, "contract_paused"));
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
             (Symbol::new(&env, "contract_paused"),),
@@ -367,6 +382,7 @@ impl ChainSettleContract {
     pub fn unpause(env: Env, admin: Address) {
         admin.require_auth();
         Self::assert_admin(&env, &admin);
+        Self::append_admin_action(&env, Symbol::new(&env, "unpause"), Symbol::new(&env, "contract_unpaused"));
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
             (Symbol::new(&env, "contract_unpaused"),),
@@ -531,9 +547,80 @@ impl ChainSettleContract {
         if fee_bps > 1000 {
             panic!("fee_bps exceeds maximum of 1000");
         }
+        Self::append_admin_action(&env, Symbol::new(&env, "set_fee_config"), Symbol::new(&env, "fee_config_updated"));
         env.storage()
             .instance()
             .set(&DataKey::FeeConfig, &FeeConfig { fee_bps, treasury });
+    }
+
+    pub fn set_max_concurrent_disputes(env: Env, admin: Address, limit: u32) {
+        admin.require_auth();
+        Self::assert_admin(&env, &admin);
+        env.storage().instance().set(&DataKey::MaxConcurrentDisputes, &limit);
+        Self::append_admin_action(
+            &env,
+            Symbol::new(&env, "set_max_concurrent_disputes"),
+            Symbol::new(&env, "max_concurrent_disputes_updated"),
+        );
+    }
+
+    pub fn set_min_milestone_percent(env: Env, admin: Address, percent: u32) {
+        admin.require_auth();
+        Self::assert_admin(&env, &admin);
+        if percent == 0 || percent > 100 {
+            panic!("min_milestone_percent must be between 1 and 100");
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MinMilestonePercent, &percent);
+        Self::append_admin_action(
+            &env,
+            Symbol::new(&env, "set_min_milestone_percent"),
+            Symbol::new(&env, "min_milestone_percent_updated"),
+        );
+    }
+
+    pub fn blacklist_address(
+        env: Env,
+        admin: Address,
+        address: Address,
+        reason_hash: BytesN<32>,
+    ) {
+        admin.require_auth();
+        Self::assert_admin(&env, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::Blacklisted(address.clone()), &reason_hash);
+        Self::append_admin_action(
+            &env,
+            Symbol::new(&env, "blacklist_address"),
+            Symbol::new(&env, "address_blacklisted"),
+        );
+    }
+
+    pub fn remove_from_blacklist(env: Env, admin: Address, address: Address) {
+        admin.require_auth();
+        Self::assert_admin(&env, &admin);
+        env.storage().instance().remove(&DataKey::Blacklisted(address.clone()));
+        Self::append_admin_action(
+            &env,
+            Symbol::new(&env, "remove_from_blacklist"),
+            Symbol::new(&env, "address_unblacklisted"),
+        );
+    }
+
+    pub fn is_blacklisted(env: Env, address: Address) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Blacklisted(address))
+            .is_some()
+    }
+
+    pub fn get_admin_log(env: Env) -> Vec<AuditEntry> {
+        env.storage()
+            .instance()
+            .get(&DataKey::AdminActionLog)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     // ----------------------------------------------------------
@@ -547,6 +634,7 @@ impl ChainSettleContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("unauthorized"));
         admin.require_auth();
+        Self::append_admin_action(&env, Symbol::new(&env, "add_allowed_token"), Symbol::new(&env, "allowed_token_added"));
         let mut allowed: Vec<Address> = env
             .storage()
             .instance()
@@ -563,6 +651,7 @@ impl ChainSettleContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("unauthorized"));
         admin.require_auth();
+        Self::append_admin_action(&env, Symbol::new(&env, "remove_allowed_token"), Symbol::new(&env, "allowed_token_removed"));
         let allowed: Vec<Address> = env
             .storage()
             .instance()
@@ -643,9 +732,34 @@ impl ChainSettleContract {
             }
         }
 
+        for i in 0..buyers.len() {
+            if env
+                .storage()
+                .instance()
+                .get(&DataKey::Blacklisted(buyers.get(i).unwrap().clone()))
+                .is_some()
+            {
+                panic!("unauthorized");
+            }
+        }
+        for addr in [supplier.clone(), logistics.clone(), arbiter.clone()] {
+            if env.storage().instance().get(&DataKey::Blacklisted(addr)).is_some() {
+                panic!("unauthorized");
+            }
+        }
+
+        let min_pct: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinMilestonePercent)
+            .unwrap_or(5u32);
         let mut total_percent: u32 = 0;
         for i in 0..milestones.len() {
-            total_percent += milestones.get(i).unwrap().payment_percent;
+            let percent = milestones.get(i).unwrap().payment_percent;
+            if percent < min_pct {
+                panic!("InvalidPercentages");
+            }
+            total_percent += percent;
         }
         if total_percent != 100 {
             panic!("milestone percentages must sum to 100");
@@ -696,6 +810,7 @@ impl ChainSettleContract {
             last_dispute_resolved_ledger: None,
             late_penalty_bps_per_ledger,
             auto_confirm_ledgers,
+            open_dispute_count: 0,
         };
 
         Self::append_audit_entry(
@@ -1278,6 +1393,15 @@ impl ChainSettleContract {
             }
         }
 
+        let max_open: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxConcurrentDisputes)
+            .unwrap_or(1u32);
+        if shipment.open_dispute_count >= max_open {
+                panic!("DisputeAlreadyOpen");
+
+        shipment.open_dispute_count += 1;
         // Cancel any holdback window.
         milestone.release_after_ledger = 0;
         milestone.status = MilestoneStatus::Disputed;
@@ -1372,6 +1496,7 @@ impl ChainSettleContract {
         }
 
         shipment.milestones.set(milestone_index, milestone);
+        shipment.open_dispute_count = shipment.open_dispute_count.saturating_sub(1);
 
         // Update cooldown tracking regardless of approve/reject.
         shipment.last_dispute_resolved_ledger = Some(env.ledger().sequence());
@@ -2284,6 +2409,29 @@ impl ChainSettleContract {
         }
 
         shipment.audit_log.push_back(entry);
+    }
+
+    fn append_admin_action(env: &Env, action: Symbol, detail: Symbol) {
+        let mut log: Vec<AuditEntry> = env
+            .storage()
+            .instance()
+            .get(&DataKey::AdminActionLog)
+            .unwrap_or_else(|| Vec::new(env));
+        let entry = AuditEntry {
+            action,
+            caller: env.storage().instance().get(&DataKey::Admin).unwrap_or_else(|| panic!("unauthorized")),
+            ledger: env.ledger().sequence(),
+            detail,
+        };
+        if log.len() as usize >= 50 {
+            let mut next: Vec<AuditEntry> = Vec::new(env);
+            for i in 1..log.len() {
+                next.push_back(log.get(i).unwrap());
+            }
+            log = next;
+        }
+        log.push_back(entry);
+        env.storage().instance().set(&DataKey::AdminActionLog, &log);
     }
 
     fn all_milestones_done(shipment: &Shipment) -> bool {
