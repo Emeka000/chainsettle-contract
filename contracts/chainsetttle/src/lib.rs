@@ -2712,4 +2712,5 @@ impl ChainSettleContract {
 }
 
 mod test;
+mod test_errors;
 mod property_tests;
