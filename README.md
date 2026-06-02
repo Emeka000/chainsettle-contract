@@ -33,6 +33,7 @@ This is **Repo 1 of 3** in the ChainSettle project:
 - [Deploying to Testnet](#deploying-to-testnet)
 - [Deploying to Mainnet](#deploying-to-mainnet)
 - [Security Considerations](#security-considerations)
+  - See detailed security model: [docs/SECURITY.md](docs/SECURITY.md)
 - [Roadmap](#roadmap)
 
 ---
@@ -418,6 +419,9 @@ stellar contract deploy \
 - **Percentage validation**: The contract validates that all milestone percentages sum exactly to 100 at shipment creation. Rounding is integer-based — for amounts where `total * percent / 100` doesn't divide evenly, the final milestone may receive a slightly different amount. Consider adjusting percentages accordingly.
 - **TTL / State Archival**: Persistent storage entries are given an extended TTL (~1 year) at creation. Long-lived shipments should call `extend_ttl` via the backend before entries archive.
 - **No upgradability (MVP)**: This scaffold has no upgrade mechanism. For production, consider implementing Soroban's `upgrade` pattern.
+
+For a detailed threat analysis and security model, see [docs/SECURITY.md](docs/SECURITY.md).
+
 
 ---
 
