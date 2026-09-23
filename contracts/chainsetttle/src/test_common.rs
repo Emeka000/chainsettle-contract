@@ -3,7 +3,10 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token, vec, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    token, vec, Address, Env, String,
+};
 
 // ============================================================
 // TEST SETUP & SHARED FIXTURES
@@ -130,6 +133,7 @@ pub fn default_options(_env: &Env) -> ShipmentOptions {
         confirmation_cooldown_ledgers: None,
         arbiter_panel: vec![_env],
         jurisdiction: None,
+        grace_period_ledgers: 0,
     }
 }
 
@@ -204,7 +208,7 @@ fn test_submit_proof_first_milestone() {
     );
     
     let proof = String::from_str(&setup.env, "proof_hash_123");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::ProofSubmitted);
@@ -229,8 +233,8 @@ fn test_confirm_milestone_releases_payment() {
     );
     
     let proof = String::from_str(&setup.env, "proof_hash_456");
-    client.submit_proof(&shipment_id, &0, &proof);
-    client.confirm_milestone(&shipment_id, &0);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
+    client.confirm_milestone(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::Confirmed);
@@ -256,10 +260,10 @@ fn test_raise_dispute_on_milestone() {
     );
     
     let proof = String::from_str(&setup.env, "disputed_proof");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let reason = String::from_str(&setup.env, "Quality issue");
-    client.raise_dispute(&shipment_id, &0, &reason);
+    client.raise_dispute(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::Disputed);
@@ -284,11 +288,11 @@ fn test_resolve_dispute_approve() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let reason = String::from_str(&setup.env, "Dispute");
-    client.raise_dispute(&shipment_id, &0, &reason);
-    client.resolve_dispute(&shipment_id, &0, &true);
+    client.raise_dispute(&setup.buyer, &shipment_id, &0);
+    client.resolve_dispute(&setup.arbiter, &shipment_id, &0, &true, &None);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::Resolved);
@@ -313,14 +317,15 @@ fn test_resolve_dispute_reject() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let reason = String::from_str(&setup.env, "Dispute");
-    client.raise_dispute(&shipment_id, &0, &reason);
-    client.resolve_dispute(&shipment_id, &0, &false);
+    client.raise_dispute(&setup.buyer, &shipment_id, &0);
+    client.resolve_dispute(&setup.arbiter, &shipment_id, &0, &false, &None);
     
+    // Rejection returns the milestone to Pending so the supplier can resubmit.
     let shipment = client.get_shipment(&shipment_id);
-    assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::Resolved);
+    assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::Pending);
 }
 
 #[test]
@@ -341,7 +346,7 @@ fn test_cancel_shipment_by_buyer() {
         1_000_000,
     );
     
-    client.cancel_shipment(&shipment_id);
+    client.cancel_shipment(&setup.buyer, &shipment_id);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.status, ShipmentStatus::Cancelled);
@@ -436,7 +441,8 @@ fn test_supplier_collateral_requirement() {
     let shipment_id = String::from_str(&setup.env, "SHIP-011");
     let mut opts = default_options(&setup.env);
     opts.supplier_collateral = 100_000;
-    
+    token::StellarAssetClient::new(&setup.env, &setup.token_id).mint(&setup.supplier, &100_000);
+
     client.create_shipment(
         &shipment_id,
         &single_buyer_vec(&setup.env, &setup.buyer),
@@ -808,6 +814,7 @@ fn test_shipment_created_at_timestamp() {
     let client = ChainSettleContractClient::new(&setup.env, &setup.contract_id);
     
     let shipment_id = String::from_str(&setup.env, "SHIP-026");
+    setup.env.ledger().set_sequence_number(100);
     create_standard_shipment(
         &client,
         &setup.env,
@@ -821,7 +828,7 @@ fn test_shipment_created_at_timestamp() {
     );
     
     let shipment = client.get_shipment(&shipment_id);
-    assert!(shipment.created_at > 0);
+    assert_eq!(shipment.created_at, 100);
 }
 
 #[test]
@@ -912,7 +919,7 @@ fn test_proof_hash_updated_after_submission() {
     );
     
     let proof = String::from_str(&setup.env, "new_proof_hash");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(0).unwrap().proof_hash, proof);
@@ -959,10 +966,10 @@ fn test_open_dispute_count_increments() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let reason = String::from_str(&setup.env, "Issue");
-    client.raise_dispute(&shipment_id, &0, &reason);
+    client.raise_dispute(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.open_dispute_count, 1);
@@ -987,7 +994,7 @@ fn test_submit_proof_second_milestone() {
     );
     
     let proof = String::from_str(&setup.env, "milestone_2_proof");
-    client.submit_proof(&shipment_id, &1, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &1, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(1).unwrap().status, MilestoneStatus::ProofSubmitted);
@@ -1012,7 +1019,7 @@ fn test_submit_proof_third_milestone() {
     );
     
     let proof = String::from_str(&setup.env, "milestone_3_proof");
-    client.submit_proof(&shipment_id, &2, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &2, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(2).unwrap().status, MilestoneStatus::ProofSubmitted);
@@ -1038,8 +1045,8 @@ fn test_confirm_all_milestones_completes_shipment() {
     
     for i in 0..3 {
         let proof = String::from_str(&setup.env, "proof");
-        client.submit_proof(&shipment_id, &i, &proof);
-        client.confirm_milestone(&shipment_id, &i);
+        client.submit_proof(&setup.supplier, &shipment_id, &i, &proof, &Symbol::new(&setup.env, "ipfs"));
+        client.confirm_milestone(&setup.buyer, &shipment_id, &i);
     }
     
     let shipment = client.get_shipment(&shipment_id);
@@ -1780,7 +1787,7 @@ fn test_proof_submission_updates_ledger() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let shipment = client.get_shipment(&shipment_id);
     assert!(shipment.milestones.get(0).unwrap().proof_submitted_ledger.is_some());
@@ -1805,10 +1812,10 @@ fn test_dispute_opens_on_milestone() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
     
     let reason = String::from_str(&setup.env, "Dispute reason");
-    client.raise_dispute(&shipment_id, &0, &reason);
+    client.raise_dispute(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert!(shipment.milestones.get(0).unwrap().dispute_opened_ledger.is_some());
@@ -1836,13 +1843,13 @@ fn test_multiple_disputes_on_different_milestones() {
     );
     
     let proof1 = String::from_str(&setup.env, "proof1");
-    client.submit_proof(&shipment_id, &0, &proof1);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof1, &Symbol::new(&setup.env, "ipfs"));
     
     let proof2 = String::from_str(&setup.env, "proof2");
-    client.submit_proof(&shipment_id, &1, &proof2);
+    client.submit_proof(&setup.supplier, &shipment_id, &1, &proof2, &Symbol::new(&setup.env, "ipfs"));
     
     let reason1 = String::from_str(&setup.env, "Dispute 1");
-    client.raise_dispute(&shipment_id, &0, &reason1);
+    client.raise_dispute(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.open_dispute_count, 1);
@@ -1908,8 +1915,8 @@ fn test_milestone_confirmed_held_status() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
-    client.confirm_milestone(&shipment_id, &0);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
+    client.confirm_milestone(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.milestones.get(0).unwrap().status, MilestoneStatus::ConfirmedHeld);
@@ -1937,8 +1944,8 @@ fn test_release_after_ledger_set_with_holdback() {
     );
     
     let proof = String::from_str(&setup.env, "proof");
-    client.submit_proof(&shipment_id, &0, &proof);
-    client.confirm_milestone(&shipment_id, &0);
+    client.submit_proof(&setup.supplier, &shipment_id, &0, &proof, &Symbol::new(&setup.env, "ipfs"));
+    client.confirm_milestone(&setup.buyer, &shipment_id, &0);
     
     let shipment = client.get_shipment(&shipment_id);
     assert!(shipment.milestones.get(0).unwrap().release_after_ledger > 0);
@@ -1962,7 +1969,7 @@ fn test_cancelled_shipment_cannot_progress() {
         1_000_000,
     );
     
-    client.cancel_shipment(&shipment_id);
+    client.cancel_shipment(&setup.buyer, &shipment_id);
     
     let shipment = client.get_shipment(&shipment_id);
     assert_eq!(shipment.status, ShipmentStatus::Cancelled);

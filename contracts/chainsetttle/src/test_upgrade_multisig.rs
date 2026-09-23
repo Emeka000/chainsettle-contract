@@ -19,13 +19,20 @@
 extern crate std;
 
 use super::*;
-use crate::test_common::{build_milestones, default_options, setup, single_buyer_vec};
+use crate::test_common::{build_milestones, default_options, single_buyer_vec, TestSetup};
 use soroban_sdk::{testutils::Address as _, String};
 
 const WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/wasm32v1-none/release/chainsetttle.wasm"
 ));
+
+/// Uploading the full contract WASM exceeds the default test budget.
+fn setup() -> TestSetup {
+    let t = crate::test_common::setup();
+    t.env.cost_estimate().budget().reset_unlimited();
+    t
+}
 
 fn sid(env: &Env, id: &str) -> String {
     String::from_str(env, id)

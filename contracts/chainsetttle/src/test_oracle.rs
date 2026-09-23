@@ -145,6 +145,7 @@ fn default_options(env: &Env) -> ShipmentOptions {
         confirmation_cooldown_ledgers: None,
         arbiter_panel: Vec::new(env),
         jurisdiction: None,
+        grace_period_ledgers: 0,
     }
 }
 
@@ -444,7 +445,7 @@ fn test_oracle_pattern_dispute_after_rejection() {
     );
 
     // Arbiter resolves: approves the proof despite oracle rejection
-    client.resolve_dispute(&setup.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&setup.arbiter, &shipment_id, &0u32, &true, &None);
 
     // Verify dispute resolved and milestone confirmed
     let shipment = client.get_shipment(&shipment_id);

@@ -145,7 +145,7 @@ fn test_disputed_ratio_blocks_tier_upgrade() {
         &Symbol::new(&t.env, "ipfs"),
     );
     client.raise_dispute(&t.buyer, &shipment_id, &0);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
 
     // Ratio is now > 0, so Silver's zero-tolerance threshold is no longer met.
     assert_eq!(client.get_supplier_tier(&t.supplier), SupplierTier::Bronze);

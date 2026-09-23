@@ -206,7 +206,7 @@ fn test_full_lifecycle_with_dispute() {
         &Symbol::new(&t.env, "ipfs"),
     );
     client.raise_dispute(&t.buyer, &shipment_id, &1);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false, &None);
 
     // After reject, supplier resubmits proof and buyer confirms
     client.submit_proof(

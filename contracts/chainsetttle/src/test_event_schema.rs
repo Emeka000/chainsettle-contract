@@ -217,7 +217,7 @@ fn test_dispute_opened_and_resolved_event_schema() {
     assert_eq!(field_u32(&t.env, &opened, "milestone_index"), 0);
     assert_eq!(field_address(&t.env, &opened, "buyer"), t.buyer);
 
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true, &None);
 
     let resolved = find_chainsettle_event(&t.env, "dispute_resolved")
         .expect("DisputeResolved must be emitted by resolve_dispute");

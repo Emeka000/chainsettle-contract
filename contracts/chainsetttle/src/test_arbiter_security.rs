@@ -49,7 +49,7 @@ fn test_arbiter_cannot_resolve_pending_milestone() {
 
     // Arbiter attempts to resolve dispute on Pending milestone (not Disputed)
     // Should panic: milestone is not in disputed status
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -90,7 +90,7 @@ fn test_arbiter_cannot_resolve_proof_submitted_milestone() {
 
     // Arbiter attempts to resolve dispute on ProofSubmitted milestone
     // Should panic: milestone is not in disputed status
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -135,7 +135,7 @@ fn test_arbiter_cannot_resolve_confirmed_milestone() {
 
     // Arbiter attempts to resolve dispute on Confirmed milestone
     // Should panic: milestone is not in disputed status
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -183,7 +183,7 @@ fn test_arbiter_cannot_resolve_confirmed_held_milestone() {
 
     // Arbiter attempts to resolve dispute on ConfirmedHeld milestone
     // Should panic: milestone is not in disputed status
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -224,11 +224,11 @@ fn test_arbiter_cannot_resolve_resolved_milestone() {
     client.raise_dispute(&t.buyer, &shipment_id, &0u32);
 
     // Resolve the dispute - milestone now in Resolved state
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 
     // Arbiter attempts to resolve dispute AGAIN on Resolved milestone
     // Should panic: milestone is not in disputed status
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -351,7 +351,7 @@ fn test_only_arbiter_can_resolve_after_buyer_raises_dispute() {
     );
 
     // Arbiter resolves dispute (should succeed)
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 
     // Verify milestone is now Resolved
     let shipment = client.get_shipment(&shipment_id);
@@ -400,7 +400,7 @@ fn test_arbiter_cannot_bypass_dispute_process_for_payment_redirect() {
     // Arbiter attempts to directly resolve without buyer raising dispute
     // This is a security attack: arbiter trying to bypass buyer oversight
     // Should panic: milestone is not in disputed status
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -483,7 +483,7 @@ fn test_non_designated_arbiter_cannot_resolve_dispute() {
     // A random third party (not the shipment's designated arbiter) attempts to resolve.
     // Should panic: unauthorized
     let impostor = Address::generate(&t.env);
-    client.resolve_dispute(&impostor, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&impostor, &shipment_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -562,5 +562,5 @@ fn test_supplier_cannot_resolve_dispute() {
 
     // Supplier (a stakeholder, but not the arbiter) attempts to resolve the dispute in its own favor.
     // Should panic: unauthorized
-    client.resolve_dispute(&t.supplier, &shipment_id, &0u32, &true);
+    client.resolve_dispute(&t.supplier, &shipment_id, &0u32, &true, &None);
 }

@@ -293,6 +293,8 @@ fn default_options(_env: &Env) -> ShipmentOptions {
         backup_arbiter: None,
         confirmation_cooldown_ledgers: None,
         arbiter_panel: vec![_env],
+        grace_period_ledgers: 0,
+        jurisdiction: None,
     }
 }
 
@@ -364,7 +366,7 @@ fn test_shipment_lifecycle_snapshots() {
     client.raise_dispute(&t.buyer, &shipment_id, &1);
     let after_dispute_snapshot = SnapshotShipment::from_shipment(client.get_shipment(&shipment_id));
 
-    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false, &None);
     let after_resolve_snapshot = SnapshotShipment::from_shipment(client.get_shipment(&shipment_id));
 
     let snapshots = serde_json::json!({

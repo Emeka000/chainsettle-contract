@@ -6,7 +6,9 @@ extern crate std;
 // penalty caps, full drain with bad-debt socialization, and guards.
 
 use crate::test::test_common::{open_position, seed_liquidity, setup, Setup, PRICE_ONE};
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::token;
+use std::vec;
 
 fn coll_price(s: &Setup, price: i128) {
     s.primary_oracle().set_price(&s.coll_id, &price);
@@ -303,11 +305,13 @@ fn test_liquidation_with_multiple_borrowers_independent() {
     open_position(&s, &s.alice, 2_000, 1_000);
     open_position(&s, &s.bob, 3_000, 1_500);
     
-    // Price crash makes Alice liquidatable but not Bob
+    // Price crash makes both positions liquidatable; only Alice is liquidated.
     coll_price(&s, 60_000_000);
     
     // Liquidate Alice
-    let res = s.client().liquidate(&s.d1, &s.alice, &0i128);
+    let liquidator = soroban_sdk::Address::generate(&s.env);
+    token::StellarAssetClient::new(&s.env, &s.debt_id).mint(&liquidator, &10_000i128);
+    let res = s.client().liquidate(&liquidator, &s.alice, &0i128);
     assert!(res.repay_units > 0);
     
     // Bob's position should remain untouched
@@ -322,6 +326,7 @@ fn test_liquidation_with_multiple_borrowers_independent() {
 }
 
 #[test]
+#[should_panic(expected = "position not liquidatable")]
 fn test_liquidation_at_exact_threshold() {
     let s = setup();
     seed_liquidity(&s, &[&s.d1], &[10_000]);
@@ -332,7 +337,19 @@ fn test_liquidation_at_exact_threshold() {
     // 2000 units * price = 1250 → price = 0.625
     coll_price(&s, 62_500_000);
     
-    // Position should be liquidatable (at threshold boundary)
+    // HF == 1 is still healthy: liquidation requires HF strictly below 1.
+    s.client().liquidate(&s.bob, &s.alice, &0i128);
+}
+
+#[test]
+fn test_liquidation_just_below_threshold() {
+    let s = setup();
+    seed_liquidity(&s, &[&s.d1], &[10_000]);
+    open_position(&s, &s.alice, 2_000, 1_000);
+    
+    // One unit below the 0.625 boundary price tips HF under 1.
+    coll_price(&s, 62_499_999);
+    
     let res = s.client().liquidate(&s.bob, &s.alice, &0i128);
     assert!(res.repay_units > 0);
 }
@@ -346,10 +363,10 @@ fn test_liquidator_insufficient_debt_tokens() {
     
     // Create a liquidator with limited debt tokens
     let liquidator = soroban_sdk::Address::generate(&s.env);
-    token::Client::new(&s.env, &s.debt_id).mint(&liquidator, &100i128);
+    token::StellarAssetClient::new(&s.env, &s.debt_id).mint(&liquidator, &100i128);
     
-    // Should still be able to liquidate with available balance
-    let res = s.client().liquidate(&liquidator, &s.alice, &0i128);
+    // Should still be able to liquidate up to its available balance
+    let res = s.client().liquidate(&liquidator, &s.alice, &100i128);
     assert!(res.repay_units <= 100);
 }
 
@@ -383,7 +400,8 @@ fn test_sequential_partial_liquidations() {
 #[test]
 fn test_liquidation_bonus_increases_monotonically() {
     // Test that bonus increases as health factor decreases
-    let prices = vec![70_000_000, 60_000_000, 50_000_000, 40_000_000, 30_000_000];
+    // All below the 0.625 liquidation boundary for a 2_000/1_000 position.
+    let prices = vec![60_000_000, 55_000_000, 50_000_000, 45_000_000, 40_000_000];
     let mut bonuses = vec![];
     
     for price in prices {
@@ -415,6 +433,8 @@ fn test_liquidation_after_interest_accrual() {
     
     // Advance time to accrue interest (if applicable)
     s.env.ledger().set_timestamp(s.env.ledger().timestamp() + 86400 * 30);
+    // Refresh the debt price so it isn't stale after the time jump.
+    s.primary_oracle().set_price(&s.debt_id, &PRICE_ONE);
     
     // Price drop makes position liquidatable
     coll_price(&s, 55_000_000);
@@ -436,7 +456,8 @@ fn test_liquidation_preserves_other_depositor_balances() {
     let d2_before = s.client().get_depositor_balance(&s.d2);
     
     open_position(&s, &s.alice, 2_000, 800);
-    coll_price(&s, 55_000_000);
+    // 2_000 * 0.45 * 0.8 = 720 < 800 debt → liquidatable, collateral still covers debt.
+    coll_price(&s, 45_000_000);
     
     // Partial liquidation (no bad debt)
     let res = s.client().liquidate(&s.bob, &s.alice, &200i128);
@@ -511,8 +532,8 @@ fn test_multiple_liquidators_compete_fairly() {
     let liquidator1 = soroban_sdk::Address::generate(&s.env);
     let liquidator2 = soroban_sdk::Address::generate(&s.env);
     
-    token::Client::new(&s.env, &s.debt_id).mint(&liquidator1, &1_000i128);
-    token::Client::new(&s.env, &s.debt_id).mint(&liquidator2, &1_000i128);
+    token::StellarAssetClient::new(&s.env, &s.debt_id).mint(&liquidator1, &1_000i128);
+    token::StellarAssetClient::new(&s.env, &s.debt_id).mint(&liquidator2, &1_000i128);
     
     // First liquidator acts
     let res1 = s.client().liquidate(&liquidator1, &s.alice, &500i128);

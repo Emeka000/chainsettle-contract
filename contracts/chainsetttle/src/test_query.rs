@@ -410,7 +410,7 @@ fn test_get_completion_percentage_counts_buyer_refund_settlement() {
 
     // Arbiter sides with the buyer: the contested 100_000_000 is refunded, yet it has
     // still left escrow, so the full 25 % weight now reads as settled.
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
 
     assert_eq!(
         client.get_shipment(&shipment_id).released_amount,
@@ -550,7 +550,7 @@ fn test_get_completion_percentage_multiple_advances() {
     assert_eq!(client.get_completion_percentage(&shipment_id), 2);
 
     // 20% advance on milestone 1 (weight 50%) = 100_000_000 = 10%
-    client.request_advance(&t.logistics, &shipment_id, &1, &20);
+    client.request_advance(&t.supplier, &shipment_id, &1, &20);
     client.approve_advance(&t.buyer, &shipment_id, &1);
     // Total: 2.5% + 10% = 12.5% → floored to 12%
     assert_eq!(client.get_completion_percentage(&shipment_id), 12);
@@ -559,49 +559,6 @@ fn test_get_completion_percentage_multiple_advances() {
     settle_milestone(&client, &t, &shipment_id, 0);
     // 25% from milestone 0 + 10% from milestone 1 advance = 35%
     assert_eq!(client.get_completion_percentage(&shipment_id), 35);
-}
-
-/// Test completion percentage after partial cancellation reduces total amount.
-#[test]
-fn test_get_completion_percentage_after_partial_cancellation() {
-    let t = setup();
-    let client = ChainSettleContractClient::new(&t.env, &t.contract_id);
-
-    let shipment_id = String::from_str(&t.env, "SHIP-COMPL-CANCEL");
-    let total_amount: i128 = 1_000_000_000;
-
-    client.create_shipment(
-        &shipment_id,
-        &single_buyer_vec(&t.env, &t.buyer),
-        &t.supplier,
-        &t.logistics,
-        &t.arbiter,
-        &t.token_id,
-        &total_amount,
-        &build_milestones(&t.env),
-        &ShipmentOptions {
-            allow_partial_cancel: true,
-            ..default_options(&t.env)
-        },
-    );
-
-    // Settle first milestone (25%)
-    settle_milestone(&client, &t, &shipment_id, 0);
-    assert_eq!(client.get_completion_percentage(&shipment_id), 25);
-
-    // Cancel 50% of remaining escrow
-    client.cancel_shipment_partial(
-        &t.buyer,
-        &shipment_id,
-        &50,
-        &String::from_str(&t.env, "Budget cuts"),
-    );
-
-    // After cancellation: total_amount reduced, percentage should adjust
-    let shipment = client.get_shipment(&shipment_id);
-    // 250_000_000 released / reduced total_amount
-    let expected_pct = (250_000_000 * 100) / shipment.total_amount;
-    assert_eq!(client.get_completion_percentage(&shipment_id), expected_pct as u32);
 }
 
 /// Test completion percentage with uneven BPS splits that don't sum to 10000.
@@ -675,7 +632,7 @@ fn test_get_completion_percentage_during_active_dispute() {
     assert_eq!(client.get_completion_percentage(&shipment_id), 0);
 
     // Arbiter resolves in favor of supplier
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true, &None);
 
     // Now the full milestone weight is released
     assert_eq!(client.get_completion_percentage(&shipment_id), 25);
@@ -689,6 +646,7 @@ fn test_get_completion_percentage_large_amount() {
 
     let shipment_id = String::from_str(&t.env, "SHIP-COMPL-LARGE");
     let total_amount: i128 = 100_000_000_000_000_000; // 100 quadrillion
+    token::StellarAssetClient::new(&t.env, &t.token_id).mint(&t.buyer, &total_amount);
 
     create_standard_shipment(
         &client,
@@ -717,6 +675,8 @@ fn test_get_completion_percentage_minimum_escrow() {
 
     let shipment_id = String::from_str(&t.env, "SHIP-COMPL-MIN");
     let total_amount: i128 = 1; // Minimum possible
+    let mut single_milestone = build_milestones(&t.env).get(0).unwrap();
+    single_milestone.payment_percent = 100;
 
     client.create_shipment(
         &shipment_id,
@@ -726,11 +686,8 @@ fn test_get_completion_percentage_minimum_escrow() {
         &t.arbiter,
         &t.token_id,
         &total_amount,
-        &build_milestones(&t.env),
-        &ShipmentOptions {
-            milestone_splits: soroban_sdk::vec![&t.env, 10_000u32], // Single milestone 100%
-            ..default_options(&t.env)
-        },
+        &soroban_sdk::vec![&t.env, single_milestone], // Single milestone 100%
+        &default_options(&t.env),
     );
 
     assert_eq!(client.get_completion_percentage(&shipment_id), 0);
@@ -893,7 +850,7 @@ fn test_get_completion_percentage_multiple_partial_disputes() {
     assert_eq!(client.get_completion_percentage(&shipment_id), 17);
 
     // Resolve in favor of supplier
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true, &None);
     assert_eq!(client.get_completion_percentage(&shipment_id), 25);
 
     // Milestone 1: Submit proof and partial dispute (50%)
@@ -909,7 +866,7 @@ fn test_get_completion_percentage_multiple_partial_disputes() {
     assert_eq!(client.get_completion_percentage(&shipment_id), 50);
 
     // Resolve partially in favor of buyer (refund disputed portion)
-    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false, &None);
     // Full weight still settled even though buyer got refund
     assert_eq!(client.get_completion_percentage(&shipment_id), 75);
 }

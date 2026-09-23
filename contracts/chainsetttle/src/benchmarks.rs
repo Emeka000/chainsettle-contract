@@ -128,6 +128,7 @@ fn default_options(_env: &Env) -> ShipmentOptions {
         confirmation_cooldown_ledgers: None,
         arbiter_panel: vec![_env],
         jurisdiction: None,
+        grace_period_ledgers: 0,
     }
 }
 
@@ -366,7 +367,7 @@ fn benchmark_resolve_dispute(milestone_count: u32) -> BenchmarkResult {
     client.raise_dispute(&setup.buyer, &shipment_id, &0);
 
     let instructions = measure_instructions(&setup.env, || {
-        client.resolve_dispute(&setup.arbiter, &shipment_id, &0, &true);
+        client.resolve_dispute(&setup.arbiter, &shipment_id, &0, &true, &None);
     });
 
     BenchmarkResult {

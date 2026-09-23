@@ -94,6 +94,7 @@ fn make_shipment(
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 }
@@ -273,7 +274,7 @@ fn test_wasm_upgrade_state_persists() {
     );
 
     // ---- Active dispute on S3 must be resolvable post-upgrade ---------------
-    client.resolve_dispute(&arbiter, &id3, &0, &true);
+    client.resolve_dispute(&arbiter, &id3, &0, &true, &None);
     assert_eq!(
         client.get_shipment(&id3).milestones.get(0).unwrap().status,
         MilestoneStatus::Resolved,

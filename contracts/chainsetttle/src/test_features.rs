@@ -112,6 +112,7 @@ fn default_opts(env: &Env) -> ShipmentOptions {
         confirmation_cooldown_ledgers: None,
         arbiter_panel: Vec::new(env),
         jurisdiction: None,
+        grace_period_ledgers: 0,
     }
 }
 

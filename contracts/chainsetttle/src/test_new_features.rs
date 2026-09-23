@@ -426,7 +426,7 @@ fn test_extension_request_count_includes_approved_requests() {
         &build_milestones(&t.env),
         &default_options(&t.env),
     );
-    client.set_max_extension_requests_per_milestone(&t.buyer, &2u32);
+    client.set_max_extension_requests(&t.buyer, &2u32);
 
     client.request_extension(&t.supplier, &ship_id, &0u32, &100u32);
     client.approve_extension(&t.buyer, &ship_id, &0u32);
@@ -453,7 +453,7 @@ fn test_extension_request_count_includes_denied_requests() {
         &build_milestones(&t.env),
         &default_options(&t.env),
     );
-    client.set_max_extension_requests_per_milestone(&t.buyer, &2u32);
+    client.set_max_extension_requests(&t.buyer, &2u32);
 
     client.request_extension(&t.supplier, &ship_id, &0u32, &100u32);
     client.deny_extension(&t.buyer, &ship_id, &0u32);
@@ -481,7 +481,7 @@ fn test_extension_request_over_limit_rejected() {
         &build_milestones(&t.env),
         &default_options(&t.env),
     );
-    client.set_max_extension_requests_per_milestone(&t.buyer, &1u32);
+    client.set_max_extension_requests(&t.buyer, &1u32);
 
     client.request_extension(&t.supplier, &ship_id, &0u32, &100u32);
     client.deny_extension(&t.buyer, &ship_id, &0u32);

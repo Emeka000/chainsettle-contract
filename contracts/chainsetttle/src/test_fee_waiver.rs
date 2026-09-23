@@ -11,7 +11,10 @@ extern crate std;
 
 use super::*;
 use crate::test_common::{build_milestones, default_options, setup, single_buyer_vec};
-use soroban_sdk::{testutils::Address as _, vec, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    vec, String,
+};
 
 #[test]
 #[should_panic(expected = "multisig admin not configured")]
@@ -101,6 +104,7 @@ fn test_expired_waiver_no_longer_applies() {
     client.initialize_multisig_admin(&t.buyer, &admins, &1u32);
 
     // Expiry in the past relative to the test env's ledger timestamp.
+    t.env.ledger().set_timestamp(1_000);
     client.propose_fee_waiver(&t.buyer, &t.supplier, &5000u32, &1u64);
     assert_eq!(client.get_fee_waiver(&t.supplier), None);
 }

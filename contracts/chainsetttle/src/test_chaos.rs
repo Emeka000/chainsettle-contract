@@ -159,6 +159,7 @@ fn exec(
                 confirmation_cooldown_ledgers: None,
                 arbiter_panel: vec![env],
                 jurisdiction: None,
+                grace_period_ledgers: 0,
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 client.create_shipment(
@@ -215,7 +216,7 @@ fn exec(
             }
             let id = String::from_str(env, SLOT_IDS[*slot]);
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                client.resolve_dispute(arbiter, &id, m, approve);
+                client.resolve_dispute(arbiter, &id, m, approve, &None);
             }));
         }
 

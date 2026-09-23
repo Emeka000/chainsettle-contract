@@ -107,6 +107,7 @@ fn create_and_dispute(
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
     let proof = String::from_str(env, "ipfs://concurrent-proof");
@@ -165,7 +166,7 @@ fn test_10_concurrent_disputes_resolved_independently() {
     for (pass, &i) in RESOLUTION_ORDER.iter().enumerate() {
         let id = ship_id(&env, i);
         let approve = pass % 2 == 0; // even passes approve, odd reject
-        client.resolve_dispute(&arbiter, &id, &0, &approve);
+        client.resolve_dispute(&arbiter, &id, &0, &approve, &None);
     }
 
     // Step 3: Verify each shipment settled independently
@@ -285,7 +286,7 @@ fn test_dispute_resolution_does_not_cross_contaminate_milestones() {
     // Resolve all in shuffled order (all approved this time)
     for &i in &RESOLUTION_ORDER {
         let id = ship_id(&env, i);
-        client.resolve_dispute(&arbiter, &id, &0, &true);
+        client.resolve_dispute(&arbiter, &id, &0, &true, &None);
 
         // Immediately after resolving shipment i, all OTHER shipments in the
         // pending-resolution set must still be in Disputed state.

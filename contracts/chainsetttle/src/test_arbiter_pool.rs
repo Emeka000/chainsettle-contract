@@ -138,7 +138,7 @@ fn test_explicit_arbiter_override_still_works() {
     assert_eq!(shipment.arbiter, t.arbiter);
 
     // The explicit arbiter can resolve
-    client.resolve_dispute(&t.arbiter, &ship_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &ship_id, &0u32, &true, &None);
 }
 
 // ============================================================
@@ -240,7 +240,7 @@ fn test_round_robin_wraps_at_end() {
         assert_eq!(client.get_shipment(&ship_id).arbiter, arb1);
 
         // Resolve so the shipment doesn't block a second iteration
-        client.resolve_dispute(&arb1, &ship_id, &0u32, &false); // reject → back to Pending
+        client.resolve_dispute(&arb1, &ship_id, &0u32, &false, &None); // reject → back to Pending
         client.submit_proof(
             &t.supplier,
             &ship_id,
@@ -286,7 +286,7 @@ fn test_pool_assigned_arbiter_resolves_dispute() {
     client.raise_dispute(&t.buyer, &ship_id, &0u32);
 
     // Pool-assigned arbiter (t.arbiter) should be able to resolve
-    client.resolve_dispute(&t.arbiter, &ship_id, &0u32, &true);
+    client.resolve_dispute(&t.arbiter, &ship_id, &0u32, &true, &None);
 
     let milestone = client.get_milestone(&ship_id, &0u32);
     assert_eq!(milestone.status, MilestoneStatus::Resolved);

@@ -206,7 +206,7 @@ fn test_declined_mediation_falls_through_to_standard_dispute_flow() {
     // Standard arbiter resolution still works normally on the still-open dispute.
     let token_client = token::Client::new(&t.env, &t.token_id);
     let supplier_before = token_client.balance(&t.supplier);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true, &None);
     assert_eq!(token_client.balance(&t.supplier), supplier_before + 1_000_000);
 
     let shipment = client.get_shipment(&shipment_id);

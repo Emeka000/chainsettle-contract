@@ -58,12 +58,12 @@ fn open_resolve_appeal_overturn(
     );
     client.raise_dispute(&t.buyer, ship_id, &0u32);
     // Original arbiter approves (releases payment to supplier)...
-    client.resolve_dispute(original_arbiter, ship_id, &0u32, &true);
+    client.resolve_dispute(original_arbiter, ship_id, &0u32, &true, &None);
     // ...then the appeal arbiter rejects instead: an overturn.
     client.appeal_dispute(&t.buyer, ship_id, &0u32);
     let shipment = client.get_shipment(ship_id);
     let appeal_arbiter = shipment.arbiter;
-    client.resolve_dispute(&appeal_arbiter, ship_id, &0u32, &false);
+    client.resolve_dispute(&appeal_arbiter, ship_id, &0u32, &false, &None);
 }
 
 #[test]

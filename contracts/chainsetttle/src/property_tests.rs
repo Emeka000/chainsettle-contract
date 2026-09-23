@@ -335,6 +335,7 @@ mod contract_prop_tests {
                 confirmation_cooldown_ledgers: None,
                 arbiter_panel: vec![env],
                 jurisdiction: None,
+                grace_period_ledgers: 0,
             },
         );
     }
@@ -401,7 +402,7 @@ mod contract_prop_tests {
 
             client.submit_proof(&supplier, &sid, &0, &String::from_str(&env, "qm_first"), &Symbol::new(&env, "ipfs"));
             client.raise_dispute(&buyer, &sid, &0);
-            client.resolve_dispute(&arbiter, &sid, &0, &false);
+            client.resolve_dispute(&arbiter, &sid, &0, &false, &None);
 
             let ship = client.get_shipment(&sid);
             let ms = ship.milestones.get(0).unwrap();
@@ -642,6 +643,7 @@ mod milestone_percent_fuzz {
                 confirmation_cooldown_ledgers: None,
                 arbiter_panel: vec![env],
                 jurisdiction: None,
+                grace_period_ledgers: 0,
             }
         }
 

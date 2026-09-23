@@ -134,6 +134,7 @@ fn default_options(_env: &Env) -> ShipmentOptions {
         confirmation_cooldown_ledgers: None,
         arbiter_panel: vec![_env],
         jurisdiction: None,
+        grace_period_ledgers: 0,
     }
 }
 
@@ -362,7 +363,7 @@ fn test_full_lifecycle_with_dispute() {
         &Symbol::new(&t.env, "ipfs"),
     );
     client.raise_dispute(&t.buyer, &shipment_id, &1);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &1, &false, &None);
 
     // After reject, supplier resubmits proof and buyer confirms
     client.submit_proof(
@@ -1181,7 +1182,7 @@ fn test_dispute_limit_frees_slot_on_resolution() {
     );
     client.raise_dispute(&t.buyer, &shipment_id, &0);
     assert_eq!(client.get_shipment(&shipment_id).open_dispute_count, 1);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
     assert_eq!(client.get_shipment(&shipment_id).open_dispute_count, 0);
 }
 
@@ -1316,6 +1317,7 @@ fn test_dispute_cooldown_enforced() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -1329,7 +1331,7 @@ fn test_dispute_cooldown_enforced() {
     );
     client.raise_dispute(&t.buyer, &shipment_id, &0);
     // Arbiter rejects — milestone goes back to Pending, cooldown starts.
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
 
     // Resubmit proof for milestone 0.
     client.submit_proof(
@@ -1400,6 +1402,7 @@ fn test_dispute_cooldown_blocks_early_redispute() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -1411,7 +1414,7 @@ fn test_dispute_cooldown_blocks_early_redispute() {
         &Symbol::new(&t.env, "ipfs"),
     );
     client.raise_dispute(&t.buyer, &shipment_id, &0);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
 
     // Resubmit and immediately try to dispute again — must panic.
     client.submit_proof(
@@ -1452,7 +1455,7 @@ fn test_no_cooldown_allows_immediate_redispute() {
         &Symbol::new(&t.env, "ipfs"),
     );
     client.raise_dispute(&t.buyer, &shipment_id, &0);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
 
     client.submit_proof(
         &t.supplier,
@@ -1514,6 +1517,7 @@ fn test_cooldown_updated_on_resolve() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -1527,7 +1531,7 @@ fn test_cooldown_updated_on_resolve() {
     client.raise_dispute(&t.buyer, &shipment_id, &0);
 
     t.env.ledger().set_sequence_number(10);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &false, &None);
 
     // last_dispute_resolved_ledger should now be 10.
     let shipment = client.get_shipment(&shipment_id);
@@ -1920,6 +1924,7 @@ fn test_non_whitelisted_token_rejected() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 }
@@ -2061,6 +2066,7 @@ fn test_holdback_happy_path() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -2167,6 +2173,7 @@ fn test_holdback_early_dispute_cancels_hold() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -2243,6 +2250,7 @@ fn test_holdback_early_release_rejected() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -2464,6 +2472,7 @@ fn test_multisig_both_buyers_must_confirm() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -2559,6 +2568,7 @@ fn test_multisig_minority_veto_dispute() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -2963,6 +2973,7 @@ fn test_deadline_cancellation_success() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -3037,6 +3048,7 @@ fn test_deadline_cancellation_too_early() {
             confirmation_cooldown_ledgers: None,
             arbiter_panel: vec![&t.env],
             jurisdiction: None,
+            grace_period_ledgers: 0,
         },
     );
 
@@ -3100,7 +3112,7 @@ fn test_fee_deducted_on_dispute_resolve_approve() {
         &Symbol::new(&t.env, "ipfs"),
     );
     client.raise_dispute(&t.buyer, &shipment_id, &0);
-    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &shipment_id, &0, &true, &None);
 
     let gross = total_amount * 25 / 100;
     let fee = gross * fee_bps as i128 / 10_000;
@@ -4414,7 +4426,7 @@ fn test_evidence_does_not_change_dispute_resolution_logic() {
     );
 
     // Arbiter still resolves normally.
-    client.resolve_dispute(&t.arbiter, &id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &id, &0, &true, &None);
 
     // Milestone resolved and payment released.
     assert_eq!(
@@ -4658,7 +4670,7 @@ fn test_withdraw_dispute_arbiter_cannot_resolve_after_withdrawal() {
     client.withdraw_dispute(&t.buyer, &id, &0);
 
     // Milestone is now ProofSubmitted — arbiter's resolve_dispute must fail.
-    client.resolve_dispute(&t.arbiter, &id, &0, &true);
+    client.resolve_dispute(&t.arbiter, &id, &0, &true, &None);
 }
 
 #[test]

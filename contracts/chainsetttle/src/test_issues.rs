@@ -85,6 +85,7 @@ fn default_options(_env: &Env) -> ShipmentOptions {
         confirmation_cooldown_ledgers: None,
         arbiter_panel: soroban_sdk::Vec::new(_env),
         jurisdiction: None,
+        grace_period_ledgers: 0,
     }
 }
 
