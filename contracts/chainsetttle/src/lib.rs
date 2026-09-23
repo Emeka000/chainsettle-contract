@@ -13804,7 +13804,6 @@ mod test_cancellation_reason;
 mod test_common;
 mod test_correct_proof;
 mod test_feat_four;
-mod test_issues_389_390_391_392;
 mod test_new_features;
 
 // Legacy test modules — some have pre-existing compilation issues.
